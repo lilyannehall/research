@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Tutorial: Environment Variables</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Tutorial: Environment Variables</h1>
+
+    <section>
+
+<header>
+    
+
+    <h2>Environment Variables</h2>
+</header>
+
+<article>
+    <p>Below is a list of environment variables that can be used to alter the
+behavior of the core library and associated tooling.</p>
+<h4><code>STORJ_NETWORK</code></h4>
+<p>This value will be postfixed to your announced protocol version in the network.
+A value of <code>testnet</code> would advertise to the network you are running
+<code>0.7.0-testnet</code>, which will isolate you to other nodes running the same exact
+version. See <a href="tutorial-private-testnet.html">Running a Test Network</a> for more information.</p>
+<h4><code>STORJ_ALLOW_LOOPBACK</code></h4>
+<p>By default, the <a href="Network.html">Network</a> class will drop and ignore message from nodes
+who identify themeselves as a loopback interface like <code>localhost</code>, <code>127.0.0.1</code>,
+etc. This is a security precaution to prevent others from causing you to send
+messages to yourself as well as prevent invalid contacts in your routing table.</p>
+<p>To disable this feature (primarily for local testing), set this variable to <code>1</code>.</p>
+<h4><code>STORJ_BRIDGE</code></h4>
+<p>This variable will change the default URI for the <a href="BridgeClient.html">BridgeClient</a> class.
+The default value is <code>https://api.storj.io</code>. If you run your own bridge,
+testing one locally, or otherwise would like to default to a different host,
+set this variable.</p>
+<p>This works well with the CLI (see <a href="tutorial-command-line-interface.html">Using the Command Line Tools</a>) when
+testing against other bridges.</p>
+<h4><code>STORJ_KEYPASS</code></h4>
+<p>This variable will set the <code>--keypass</code> used to unlock the keyring.</p>
+<p>Setting your password will make it so other users can't grep it with <code>ps -a</code>.</p>
+<h4><code>STORJ_TEMP</code></h4>
+<p>This variable will set the folder to which the encrypted file will be placed
+when uploading a file. Shards will also be placed in this folder during upload.</p>
+</article>
+
+</section>
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-storj.html">storj</a></li><li><a href="module-storj_constants.html">storj/constants</a></li><li><a href="module-storj_deps.html">storj/deps</a></li><li><a href="module-storj_patches.html">storj/patches</a></li><li><a href="module-storj_sips.html">storj/sips</a></li><li><a href="module-storj_sips_0003.html">storj/sips/0003</a></li><li><a href="module-storj_utils.html">storj/utils</a></li><li><a href="module-storj_version.html">storj/version</a></li></ul><h3>Classes</h3><ul><li><a href="AuditStream.html">AuditStream</a></li><li><a href="Blacklist.html">Blacklist</a></li><li><a href="BridgeClient.html">BridgeClient</a></li><li><a href="Contact.html">Contact</a></li><li><a href="Contract.html">Contract</a></li><li><a href="DataCipherKeyIv.html">DataCipherKeyIv</a></li><li><a href="DecryptStream.html">DecryptStream</a></li><li><a href="DeterministicKeyIv.html">DeterministicKeyIv</a></li><li><a href="EmbeddedStorageAdapter.html">EmbeddedStorageAdapter</a></li><li><a href="EncryptStream.html">EncryptStream</a></li><li><a href="ExchangeReport.html">ExchangeReport</a></li><li><a href="FarmerInterface.html">FarmerInterface</a></li><li><a href="FileDemuxer.html">FileDemuxer</a></li><li><a href="FileMuxer.html">FileMuxer</a></li><li><a href="KeyPair.html">KeyPair</a></li><li><a href="KeyRing.html">KeyRing</a></li><li><a href="Monitor.html">Monitor</a></li><li><a href="Network.html">Network</a></li><li><a href="OfferManager.html">OfferManager</a></li><li><a href="OfferStream.html">OfferStream</a></li><li><a href="ProofStream.html">ProofStream</a></li><li><a href="Protocol.html">Protocol</a></li><li><a href="RAMStorageAdapter.html">RAMStorageAdapter</a></li><li><a href="RenterInterface.html">RenterInterface</a></li><li><a href="ShardServer.html">ShardServer</a></li><li><a href="StorageAdapter.html">StorageAdapter</a></li><li><a href="StorageItem.html">StorageItem</a></li><li><a href="StorageManager.html">StorageManager</a></li><li><a href="StorageMigration.html">StorageMigration</a></li><li><a href="Transport.html">Transport</a></li><li><a href="TriggerManager.html">TriggerManager</a></li><li><a href="UploadState.html">UploadState</a></li><li><a href="Verification.html">Verification</a></li></ul><h3>Events</h3><ul><li><a href="AuditStream.html#event:finish">finish</a></li><li><a href="DecryptStream.html#event:data">data</a></li><li><a href="DecryptStream.html#event:end">end</a></li><li><a href="EmbeddedStorageAdapter.html#event:add">add</a></li><li><a href="EmbeddedStorageAdapter.html#event:delete">delete</a></li><li><a href="EmbeddedStorageAdapter.html#event:ready">ready</a></li><li><a href="EmbeddedStorageAdapter.html#event:update">update</a></li><li><a href="EncryptStream.html#event:data">data</a></li><li><a href="EncryptStream.html#event:end">end</a></li><li><a href="FarmerInterface.html#event:connected">connected</a></li><li><a href="FarmerInterface.html#event:disconnected">disconnected</a></li><li><a href="FarmerInterface.html#event:error">error</a></li><li><a href="FarmerInterface.html#event:ready">ready</a></li><li><a href="FarmerInterface.html#event:unhandledOffer">unhandledOffer</a></li><li><a href="FarmerInterface.html#event:unhandledOfferResolved">unhandledOfferResolved</a></li><li><a href="FileDemuxer.html#event:finish">finish</a></li><li><a href="FileDemuxer.html#event:shard">shard</a></li><li><a href="FileMuxer.html#event:drain">drain</a></li><li><a href="Monitor.html#event:update">update</a></li><li><a href="Network.html#event:connected">connected</a></li><li><a href="Network.html#event:disconnected">disconnected</a></li><li><a href="Network.html#event:error">error</a></li><li><a href="Network.html#event:ready">ready</a></li><li><a href="Network.html#event:unhandledOffer">unhandledOffer</a></li><li><a href="Network.html#event:unhandledOfferResolved">unhandledOfferResolved</a></li><li><a href="OfferStream.html#event:data">data</a></li><li><a href="OfferStream.html#event:end">end</a></li><li><a href="OfferStream.html#event:error">error</a></li><li><a href="RAMStorageAdapter.html#event:add">add</a></li><li><a href="RAMStorageAdapter.html#event:delete">delete</a></li><li><a href="RAMStorageAdapter.html#event:ready">ready</a></li><li><a href="RAMStorageAdapter.html#event:update">update</a></li><li><a href="RenterInterface.html#event:connected">connected</a></li><li><a href="RenterInterface.html#event:disconnected">disconnected</a></li><li><a href="RenterInterface.html#event:error">error</a></li><li><a href="RenterInterface.html#event:ready">ready</a></li><li><a href="RenterInterface.html#event:unhandledOffer">unhandledOffer</a></li><li><a href="RenterInterface.html#event:unhandledOfferResolved">unhandledOfferResolved</a></li><li><a href="ShardServer.html#event:error">error</a></li><li><a href="ShardServer.html#event:shardDownloaded">shardDownloaded</a></li><li><a href="ShardServer.html#event:shardUploaded">shardUploaded</a></li><li><a href="StorageAdapter.html#event:add">add</a></li><li><a href="StorageAdapter.html#event:delete">delete</a></li><li><a href="StorageAdapter.html#event:ready">ready</a></li><li><a href="StorageAdapter.html#event:update">update</a></li><li><a href="Transport.html#event:connectionLimitReached">connectionLimitReached</a></li><li><a href="UploadState.html#event:killed">killed</a></li></ul><h3>Tutorials</h3><ul><li><a href="tutorial-command-line-interface.html">Using the Command Line Tools</a></li><li><a href="tutorial-contract-topics.html">Publishing Storage Contracts</a></li><li><a href="tutorial-data-transfer.html">Transferring File Shards</a></li><li><a href="tutorial-environment-variables.html">Environment Variables</a></li><li><a href="tutorial-file-encryption.html">File Encryption Standards</a></li><li><a href="tutorial-private-testnet.html">Running a Test Network</a></li><li><a href="tutorial-protocol-spec.html">Protocol Specification</a></li><li><a href="tutorial-renting-data.html">Renting Data to the Network</a></li><li><a href="tutorial-tunnel-connections.html">Tunnelling Connections</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.11</a> on Sat Nov 09 2024 22:26:40 GMT-0800 (Pacific Standard Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

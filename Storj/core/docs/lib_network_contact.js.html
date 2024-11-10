@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: lib/network/contact.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: lib/network/contact.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>'use strict';
+
+var assert = require('assert');
+var kad = require('kad');
+var inherits = require('util').inherits;
+var version = require('../version');
+var utils = require('../utils');
+var url = require('url');
+
+/**
+* Represents a Storj contact (or peer)
+* @constructor
+* @license LGPL-3.0
+* @param {Object} contact
+* @param {String} contact.address - Hostname of IP address
+* @param {Number} contact.port - RPC port number
+* @param {String} contact.nodeID - 160 bit node ID (hex)
+* @param {String} [contact.hdKey] - extended hd public key
+* @param {String} [contact.hdIndex] - derivation index for node
+* @param {String} [contact.userAgent] - User agent identifier
+* @param {String} contact.protocol - Semver tag for compatibility
+*/
+function Contact(options) {
+  if (!(this instanceof Contact)) {
+    return new Contact(options);
+  }
+
+  this.userAgent = options.userAgent || version.software;
+  this.protocol = options.protocol || version.protocol;
+
+  if (options.hdKey) {
+    assert(utils.isValidHDNodeKey(options.hdKey),
+           'hdKey is expected to be extended public key');
+    assert(utils.isValidNodeIndex(options.hdIndex),
+           'hdIndex is expected to be a non-hardened index');
+    this.hdKey = options.hdKey;
+    this.hdIndex = options.hdIndex;
+  } else {
+    this.hdKey = undefined;
+    this.hdIndex = undefined;
+  }
+
+  kad.contacts.AddressPortContact.call(this, options);
+}
+
+inherits(Contact, kad.contacts.AddressPortContact);
+
+/**
+ * Indicates if URL is valid contact
+ * @param {String}
+ * @returns {Boolean}
+ */
+Contact.isValidUrl = function(uri) {
+  let contact = null;
+
+  try {
+    contact = url.parse(uri);
+    assert(contact.protocol === 'storj:', 'Invalid protocol');
+    assert(
+      Buffer.from(contact.path.substr(1), 'hex').length * 8 === 160,
+      'Invalid node ID'
+    );
+    assert(
+      utils.isValidContact(Contact.fromUrl(uri),
+                           process.env.STORJ_ALLOW_LOOPBACK),
+      'Invalid contact data'
+    );
+  } catch (err) {
+    return false;
+  }
+
+  return true;
+};
+
+/**
+ * Returns a Storj contact from the URI
+ * @private
+ * @param {String} uri
+ */
+Contact.fromUrl = function(uri) {
+  var parsed = url.parse(uri);
+
+  return new Contact({
+    address: parsed.hostname,
+    port: Number(parsed.port),
+    nodeID: parsed.path.substr(1)
+  });
+};
+
+module.exports = Contact;
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-storj.html">storj</a></li><li><a href="module-storj_constants.html">storj/constants</a></li><li><a href="module-storj_deps.html">storj/deps</a></li><li><a href="module-storj_patches.html">storj/patches</a></li><li><a href="module-storj_sips.html">storj/sips</a></li><li><a href="module-storj_sips_0003.html">storj/sips/0003</a></li><li><a href="module-storj_utils.html">storj/utils</a></li><li><a href="module-storj_version.html">storj/version</a></li></ul><h3>Classes</h3><ul><li><a href="AuditStream.html">AuditStream</a></li><li><a href="Blacklist.html">Blacklist</a></li><li><a href="BridgeClient.html">BridgeClient</a></li><li><a href="Contact.html">Contact</a></li><li><a href="Contract.html">Contract</a></li><li><a href="DataCipherKeyIv.html">DataCipherKeyIv</a></li><li><a href="DecryptStream.html">DecryptStream</a></li><li><a href="DeterministicKeyIv.html">DeterministicKeyIv</a></li><li><a href="EmbeddedStorageAdapter.html">EmbeddedStorageAdapter</a></li><li><a href="EncryptStream.html">EncryptStream</a></li><li><a href="ExchangeReport.html">ExchangeReport</a></li><li><a href="FarmerInterface.html">FarmerInterface</a></li><li><a href="FileDemuxer.html">FileDemuxer</a></li><li><a href="FileMuxer.html">FileMuxer</a></li><li><a href="KeyPair.html">KeyPair</a></li><li><a href="KeyRing.html">KeyRing</a></li><li><a href="Monitor.html">Monitor</a></li><li><a href="Network.html">Network</a></li><li><a href="OfferManager.html">OfferManager</a></li><li><a href="OfferStream.html">OfferStream</a></li><li><a href="ProofStream.html">ProofStream</a></li><li><a href="Protocol.html">Protocol</a></li><li><a href="RAMStorageAdapter.html">RAMStorageAdapter</a></li><li><a href="RenterInterface.html">RenterInterface</a></li><li><a href="ShardServer.html">ShardServer</a></li><li><a href="StorageAdapter.html">StorageAdapter</a></li><li><a href="StorageItem.html">StorageItem</a></li><li><a href="StorageManager.html">StorageManager</a></li><li><a href="StorageMigration.html">StorageMigration</a></li><li><a href="Transport.html">Transport</a></li><li><a href="TriggerManager.html">TriggerManager</a></li><li><a href="UploadState.html">UploadState</a></li><li><a href="Verification.html">Verification</a></li></ul><h3>Events</h3><ul><li><a href="AuditStream.html#event:finish">finish</a></li><li><a href="DecryptStream.html#event:data">data</a></li><li><a href="DecryptStream.html#event:end">end</a></li><li><a href="EmbeddedStorageAdapter.html#event:add">add</a></li><li><a href="EmbeddedStorageAdapter.html#event:delete">delete</a></li><li><a href="EmbeddedStorageAdapter.html#event:ready">ready</a></li><li><a href="EmbeddedStorageAdapter.html#event:update">update</a></li><li><a href="EncryptStream.html#event:data">data</a></li><li><a href="EncryptStream.html#event:end">end</a></li><li><a href="FarmerInterface.html#event:connected">connected</a></li><li><a href="FarmerInterface.html#event:disconnected">disconnected</a></li><li><a href="FarmerInterface.html#event:error">error</a></li><li><a href="FarmerInterface.html#event:ready">ready</a></li><li><a href="FarmerInterface.html#event:unhandledOffer">unhandledOffer</a></li><li><a href="FarmerInterface.html#event:unhandledOfferResolved">unhandledOfferResolved</a></li><li><a href="FileDemuxer.html#event:finish">finish</a></li><li><a href="FileDemuxer.html#event:shard">shard</a></li><li><a href="FileMuxer.html#event:drain">drain</a></li><li><a href="Monitor.html#event:update">update</a></li><li><a href="Network.html#event:connected">connected</a></li><li><a href="Network.html#event:disconnected">disconnected</a></li><li><a href="Network.html#event:error">error</a></li><li><a href="Network.html#event:ready">ready</a></li><li><a href="Network.html#event:unhandledOffer">unhandledOffer</a></li><li><a href="Network.html#event:unhandledOfferResolved">unhandledOfferResolved</a></li><li><a href="OfferStream.html#event:data">data</a></li><li><a href="OfferStream.html#event:end">end</a></li><li><a href="OfferStream.html#event:error">error</a></li><li><a href="RAMStorageAdapter.html#event:add">add</a></li><li><a href="RAMStorageAdapter.html#event:delete">delete</a></li><li><a href="RAMStorageAdapter.html#event:ready">ready</a></li><li><a href="RAMStorageAdapter.html#event:update">update</a></li><li><a href="RenterInterface.html#event:connected">connected</a></li><li><a href="RenterInterface.html#event:disconnected">disconnected</a></li><li><a href="RenterInterface.html#event:error">error</a></li><li><a href="RenterInterface.html#event:ready">ready</a></li><li><a href="RenterInterface.html#event:unhandledOffer">unhandledOffer</a></li><li><a href="RenterInterface.html#event:unhandledOfferResolved">unhandledOfferResolved</a></li><li><a href="ShardServer.html#event:error">error</a></li><li><a href="ShardServer.html#event:shardDownloaded">shardDownloaded</a></li><li><a href="ShardServer.html#event:shardUploaded">shardUploaded</a></li><li><a href="StorageAdapter.html#event:add">add</a></li><li><a href="StorageAdapter.html#event:delete">delete</a></li><li><a href="StorageAdapter.html#event:ready">ready</a></li><li><a href="StorageAdapter.html#event:update">update</a></li><li><a href="Transport.html#event:connectionLimitReached">connectionLimitReached</a></li><li><a href="UploadState.html#event:killed">killed</a></li></ul><h3>Tutorials</h3><ul><li><a href="tutorial-command-line-interface.html">Using the Command Line Tools</a></li><li><a href="tutorial-contract-topics.html">Publishing Storage Contracts</a></li><li><a href="tutorial-data-transfer.html">Transferring File Shards</a></li><li><a href="tutorial-environment-variables.html">Environment Variables</a></li><li><a href="tutorial-file-encryption.html">File Encryption Standards</a></li><li><a href="tutorial-private-testnet.html">Running a Test Network</a></li><li><a href="tutorial-protocol-spec.html">Protocol Specification</a></li><li><a href="tutorial-renting-data.html">Renting Data to the Network</a></li><li><a href="tutorial-tunnel-connections.html">Tunnelling Connections</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.11</a> on Sat Nov 09 2024 22:26:40 GMT-0800 (Pacific Standard Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

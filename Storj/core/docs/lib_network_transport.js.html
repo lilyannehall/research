@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: lib/network/transport.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: lib/network/transport.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>'use strict';
+
+const inherits = require('util').inherits;
+const kad = require('kad');
+const portfinder = require('portfinder');
+const natupnp = require('nat-upnp');
+const ip = require('ip');
+const merge = require('merge');
+const utils = require('../utils');
+const http = require('http');
+const restify = require('restify');
+const diglet = require('diglet');
+const net = require('net');
+const url = require('url');
+const ShardServer = require('./shard-server');
+
+/**
+ * Custom HTTP transport adapter
+ * @constructor
+ * @license AGPL-3.0
+ * @param {kad.Contact} contact - Contact object to binding to port
+ * @param {Object}  options
+ * @param {Logger}  options.logger - Logger for diagnositcs
+ * @param {Number}  options.maxTunnels - Number of tunnels to provide to network
+ * @param {Boolean} options.doNotTraverseNat - Do not try to punch out of NAT
+ * @param {Object}  options.tunnelGatewayRange
+ * @param {Number}  options.tunnelGatewayRange.min - Min port for gateway bind
+ * @param {Number}  options.tunnelGatewayRange.max - Max port for gateway bind
+ * @param {Number}  options.listenPort - Different port for the server to listen on (optional)
+ * @param {StorageManager} options.storageManager
+ * @param {BridgeClient} options.bridgeClient
+ */
+function Transport(contact, options) {
+  if (!(this instanceof Transport)) {
+    return new Transport(contact, options);
+  }
+
+  this._opts = merge(Object.create(Transport.DEFAULTS), options);
+  this._queuedResponses = {};
+  this._maxTunnels = this._opts.maxTunnels;
+  this._doNotTraverseNat = this._opts.doNotTraverseNat;
+  this._tunnelGatewayRange = this._opts.tunnelGatewayRange;
+  this._server = restify.createServer({
+    name: 'storj',
+    handleUpgrades: true
+  });
+
+  kad.RPC.call(this, contact, options);
+  this.on(
+    'MESSAGE_DROP',
+    kad.transports.HTTP.prototype._handleDroppedMessage.bind(this)
+  );
+}
+
+Transport.DEFAULTS = {
+  maxTunnels: 3,
+  doNotTraverseNat: false,
+  tunnelGatewayRange: { min: 0, max: 0 }
+};
+
+/**
+ * Triggered when the max connections limit is reached
+ * @event Transport#connectionLimitReached
+ */
+
+inherits(Transport, kad.RPC);
+
+/**
+ * Opens the transport, trying UPnP to become publicly addressable and falling
+ * back to using a Tunnel
+ * @private
+ * @param {Function} callback
+ */
+Transport.prototype._open = function(callback) {
+  const self = this;
+
+  this.tunnelServer = new diglet.Server({
+    logger: this._log,
+    proxyPortRange: this._opts.tunnelGatewayRange,
+    proxyMaxConnections: 12,
+    maxProxiesAllowed: this._opts.maxTunnels
+  });
+  this.shardServer = new ShardServer({
+    bridgeClient: this._opts.bridgeClient,
+    storageManager: this._opts.storageManager,
+    logger: this._log,
+    nodeID: this._contact.nodeID
+  });
+
+  if (self._doNotTraverseNat) {
+    self._isPublic = true;
+
+    /* istanbul ignore next */
+    self._log.warn(
+      'your address is %s and traversal strategies are disabled',
+      ip.isPublic(self._contact.address) ? 'public' : 'private'
+    );
+
+    return self._bindServer(callback);
+  }
+
+  self._requiresTraversal = true;
+
+  function _traverseNat() {
+    self._log.warn(
+      'you are not publicly reachable, trying traversal strategies...'
+    );
+    self._forwardPort(function(err, wanip, port) {
+      self._isPublic = !err;
+
+      if (self._isPublic) {
+        self._contact.port = port || self._contact.port;
+        self._log.info('node bound and port mapped: %s', self._contact.port);
+      }
+
+      self._bindServer(callback);
+      self._contact.address = wanip || self._contact.address;
+    });
+  }
+
+  self._bindServer(function() {
+    self._checkIfReachable(function(isReachable) {
+      if (isReachable) {
+        return callback(null);
+      }
+
+      self._close();
+      _traverseNat();
+    });
+  });
+};
+
+/**
+ * Sets up server routes
+ * @private
+ */
+Transport.prototype._bindServer = function(callback) {
+  const self = this;
+
+  // Disable TCP Nagle algorithm
+  self._server.on('connection', (sock) => sock.setNoDelay(true));
+
+  // Middleware
+  self._server.use(self._routeTunnelProxies.bind(self));
+  self._server.use(restify.CORS());
+
+  self._server.opts(/.*/, self._handleOpts.bind(self));
+
+  // Routes
+  self._server.post(
+    '/',
+    restify.bodyParser(),
+    self._handleRPC.bind(self)
+  );
+  self._server.post(
+    '/shards/:hash',
+    restify.queryParser(),
+    self.shardServer.routeConsignment.bind(self.shardServer)
+  );
+  self._server.get(
+    '/shards/:hash',
+    restify.queryParser(),
+    self.shardServer.routeRetrieval.bind(self.shardServer)
+  );
+
+  const port = self._opts.listenPort ?
+    self._opts.listenPort : self._contact.port;
+  self._server.listen(port, callback);
+};
+
+/**
+ * _handleOpts handles incomming OPTIONS requests. These requests are preflight
+ * requests for Cross-Origin requests enforced by browser security. This
+ * function essentially allows all methods and headers for any origin, allowing
+ * any domain to make a request to a farmer.
+ * @private
+ */
+Transport.prototype._handleOpts = function(req, res, next) {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods',
+    req.header('Access-Control-Request-Method'));
+  res.header('Access-Control-Allow-Headers',
+    req.header('Access-Control-Request-Headers'));
+  res.send(200);
+  return next();
+};
+
+/**
+ * Handles incoming RPC messages
+ * @private
+ */
+Transport.prototype._handleRPC = function(req, res) {
+  const self = this;
+  let message;
+
+  try {
+    message = new kad.Message(req.body);
+  } catch (err) {
+    res.send(400, new Error('Invalid RPC message'));
+    self.receive(null);
+    return;
+  }
+
+  if (kad.Message.isRequest(message)) {
+    self._queuedResponses[message.id] = res;
+  }
+
+  self.receive(message.serialize(), {});
+};
+
+/**
+ * Routes incoming requests to tunnels if any
+ * @private
+ */
+Transport.prototype._routeTunnelProxies = function(req, res, next) {
+  var self = this;
+  var targetNodeId = req.header('x-storj-node-id');
+  var upgradeReq = res.claimUpgrade ? res.claimUpgrade() : null;
+
+  if (!targetNodeId || targetNodeId === self._contact.nodeID) {
+    return next();
+  }
+
+  if (upgradeReq) {
+    self.tunnelServer.routeWebSocketConnection(
+      targetNodeId,
+      req,
+      upgradeReq.socket,
+      () => null
+    );
+  } else {
+    self.tunnelServer.routeHttpRequest(
+      targetNodeId,
+      req,
+      res,
+      () => null
+    );
+  }
+};
+
+/**
+ * Implement the message dispatcher for RPC
+ * @private
+ */
+Transport.prototype._send = function(data, contact) {
+  var self = this;
+  var parsedMessage = JSON.parse(data.toString());
+
+  if (self._queuedResponses[parsedMessage.id]) {
+    self._queuedResponses[parsedMessage.id].send(200, parsedMessage);
+    delete self._queuedResponses[parsedMessage.id];
+    return;
+  }
+
+  if (!contact.valid()) {
+    return self.receive(null);
+  }
+
+  var client = restify.createJsonClient({
+    version: '*',
+    url: url.format({
+      hostname: contact.address,
+      port: contact.port,
+      protocol: 'http:'
+    }),
+    headers: {
+      'content-type': 'application/json',
+      'x-storj-node-id': contact.nodeID
+    },
+    agent: new http.Agent({ keepAlive: true, keepAliveMsecs: 25000 }),
+    // NB: Disable TCP Nagle algorithm - use `signRequest` options to
+    // NB: manipulate the request object before sending
+    signRequest: function(req) {
+      /* istanbul ignore next */
+      req.setNoDelay(true);
+    }
+  });
+
+  client.post('/', parsedMessage, (err, req, res, data) => {
+    if (err) {
+      self._log.warn('error returned from remote host: %s', err.message);
+      return self.receive(null);
+    }
+
+    let message;
+
+    try {
+      message = kad.Message(data);
+    } catch (err) {
+      return self.receive(null);
+    }
+
+    self.receive(message.serialize(), {});
+  });
+};
+
+/**
+ * Closes the transport
+ * @private
+ */
+Transport.prototype._close = function() {
+  this._server.close();
+};
+
+/**
+ * Checks if we are publicly reachable
+ * @private
+ * @param {Function}
+ */
+Transport.prototype._checkIfReachable = function(callback) {
+  if (ip.isPrivate(this._contact.address)) {
+    return callback(false);
+  }
+
+  var sock = net.connect({
+    host: this._contact.address,
+    port: this._contact.port
+  });
+
+  sock.once('error', () => {
+    callback(false);
+    sock.removeAllListeners();
+    sock.destroy();
+  });
+  sock.once('connect', () => {
+    callback(true);
+    sock.removeAllListeners();
+    sock.end();
+  });
+};
+
+/**
+ * Creates a port mapping with UPnP
+ * @param {Number} port - The port to forward
+ * @param {Function} callback - Callback function
+ */
+Transport.prototype.createPortMapping = function(port, callback) {
+  var self = this;
+  var natupnpClient = natupnp.createClient();
+
+  natupnpClient.portMapping({
+    public: port,
+    private: port,
+    ttl: 0
+  }, function(err) {
+    if (err) {
+      self._log.warn('could not connect to NAT device via UPnP: %s', port);
+      return callback(err);
+    }
+
+    natupnpClient.externalIp(function(err, wanip) {
+      if (err) {
+        self._log.warn('could not obtain public IP address');
+        return callback(err);
+      }
+
+      if (!net.isIP(wanip)) {
+        self._log.warn('UPnP device has no valid IP address: %s',
+                        JSON.stringify(wanip));
+        return callback(new Error('UPnP device has no valid IP address'));
+      }
+
+      if (ip.isPrivate(wanip)) {
+        self._log.warn('UPnP device has no public IP address: %s', wanip);
+        return callback(new Error('UPnP device has no public IP address'));
+      }
+
+      self._log.info('successfully traversed NAT via UPnP: %s:%s', wanip, port);
+      callback(null, wanip, port);
+    });
+  });
+};
+
+/**
+ * Resolve random port to use for opening a gateway
+ * @private
+ * @param {Number}  port
+ * @param {Function} callback
+ */
+Transport.prototype._getPort = function(callback) {
+  var self = this;
+
+  if (self._contact.port) {
+    return callback(null, self._contact.port);
+  }
+
+  portfinder.basePort = Math.floor(Math.random() * (65535 - 1024) + 1024);
+  portfinder.getPort(callback);
+};
+
+/**
+ * Forwards a port and resolves the public IP
+ * @private
+ * @param {Function} callback
+ */
+Transport.prototype._forwardPort = function(callback) {
+  var self = this;
+
+  self._getPort(function(err, port) {
+    if (err) {
+      self._log.warn('could not obtain port');
+      return callback(err);
+    }
+
+    self.createPortMapping(port, callback);
+  });
+};
+
+/**
+ * Sends the RPC message to the given contact
+ * @param {Contact} contact
+ * @param {kad.Message} message
+ * @param {Function} callback
+ */
+Transport.prototype.send = function(contact, message, callback) {
+  if (kad.Message.isResponse(message)) {
+    return kad.RPC.prototype.send.apply(this, arguments);
+  }
+
+  if (!utils.isValidContact(contact, !!process.env.STORJ_ALLOW_LOOPBACK)) {
+    return callback(new Error('Invalid or forbidden contact address'));
+  }
+
+  kad.RPC.prototype.send.apply(this, arguments);
+};
+
+module.exports = Transport;
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-storj.html">storj</a></li><li><a href="module-storj_constants.html">storj/constants</a></li><li><a href="module-storj_deps.html">storj/deps</a></li><li><a href="module-storj_patches.html">storj/patches</a></li><li><a href="module-storj_sips.html">storj/sips</a></li><li><a href="module-storj_sips_0003.html">storj/sips/0003</a></li><li><a href="module-storj_utils.html">storj/utils</a></li><li><a href="module-storj_version.html">storj/version</a></li></ul><h3>Classes</h3><ul><li><a href="AuditStream.html">AuditStream</a></li><li><a href="Blacklist.html">Blacklist</a></li><li><a href="BridgeClient.html">BridgeClient</a></li><li><a href="Contact.html">Contact</a></li><li><a href="Contract.html">Contract</a></li><li><a href="DataCipherKeyIv.html">DataCipherKeyIv</a></li><li><a href="DecryptStream.html">DecryptStream</a></li><li><a href="DeterministicKeyIv.html">DeterministicKeyIv</a></li><li><a href="EmbeddedStorageAdapter.html">EmbeddedStorageAdapter</a></li><li><a href="EncryptStream.html">EncryptStream</a></li><li><a href="ExchangeReport.html">ExchangeReport</a></li><li><a href="FarmerInterface.html">FarmerInterface</a></li><li><a href="FileDemuxer.html">FileDemuxer</a></li><li><a href="FileMuxer.html">FileMuxer</a></li><li><a href="KeyPair.html">KeyPair</a></li><li><a href="KeyRing.html">KeyRing</a></li><li><a href="Monitor.html">Monitor</a></li><li><a href="Network.html">Network</a></li><li><a href="OfferManager.html">OfferManager</a></li><li><a href="OfferStream.html">OfferStream</a></li><li><a href="ProofStream.html">ProofStream</a></li><li><a href="Protocol.html">Protocol</a></li><li><a href="RAMStorageAdapter.html">RAMStorageAdapter</a></li><li><a href="RenterInterface.html">RenterInterface</a></li><li><a href="ShardServer.html">ShardServer</a></li><li><a href="StorageAdapter.html">StorageAdapter</a></li><li><a href="StorageItem.html">StorageItem</a></li><li><a href="StorageManager.html">StorageManager</a></li><li><a href="StorageMigration.html">StorageMigration</a></li><li><a href="Transport.html">Transport</a></li><li><a href="TriggerManager.html">TriggerManager</a></li><li><a href="UploadState.html">UploadState</a></li><li><a href="Verification.html">Verification</a></li></ul><h3>Events</h3><ul><li><a href="AuditStream.html#event:finish">finish</a></li><li><a href="DecryptStream.html#event:data">data</a></li><li><a href="DecryptStream.html#event:end">end</a></li><li><a href="EmbeddedStorageAdapter.html#event:add">add</a></li><li><a href="EmbeddedStorageAdapter.html#event:delete">delete</a></li><li><a href="EmbeddedStorageAdapter.html#event:ready">ready</a></li><li><a href="EmbeddedStorageAdapter.html#event:update">update</a></li><li><a href="EncryptStream.html#event:data">data</a></li><li><a href="EncryptStream.html#event:end">end</a></li><li><a href="FarmerInterface.html#event:connected">connected</a></li><li><a href="FarmerInterface.html#event:disconnected">disconnected</a></li><li><a href="FarmerInterface.html#event:error">error</a></li><li><a href="FarmerInterface.html#event:ready">ready</a></li><li><a href="FarmerInterface.html#event:unhandledOffer">unhandledOffer</a></li><li><a href="FarmerInterface.html#event:unhandledOfferResolved">unhandledOfferResolved</a></li><li><a href="FileDemuxer.html#event:finish">finish</a></li><li><a href="FileDemuxer.html#event:shard">shard</a></li><li><a href="FileMuxer.html#event:drain">drain</a></li><li><a href="Monitor.html#event:update">update</a></li><li><a href="Network.html#event:connected">connected</a></li><li><a href="Network.html#event:disconnected">disconnected</a></li><li><a href="Network.html#event:error">error</a></li><li><a href="Network.html#event:ready">ready</a></li><li><a href="Network.html#event:unhandledOffer">unhandledOffer</a></li><li><a href="Network.html#event:unhandledOfferResolved">unhandledOfferResolved</a></li><li><a href="OfferStream.html#event:data">data</a></li><li><a href="OfferStream.html#event:end">end</a></li><li><a href="OfferStream.html#event:error">error</a></li><li><a href="RAMStorageAdapter.html#event:add">add</a></li><li><a href="RAMStorageAdapter.html#event:delete">delete</a></li><li><a href="RAMStorageAdapter.html#event:ready">ready</a></li><li><a href="RAMStorageAdapter.html#event:update">update</a></li><li><a href="RenterInterface.html#event:connected">connected</a></li><li><a href="RenterInterface.html#event:disconnected">disconnected</a></li><li><a href="RenterInterface.html#event:error">error</a></li><li><a href="RenterInterface.html#event:ready">ready</a></li><li><a href="RenterInterface.html#event:unhandledOffer">unhandledOffer</a></li><li><a href="RenterInterface.html#event:unhandledOfferResolved">unhandledOfferResolved</a></li><li><a href="ShardServer.html#event:error">error</a></li><li><a href="ShardServer.html#event:shardDownloaded">shardDownloaded</a></li><li><a href="ShardServer.html#event:shardUploaded">shardUploaded</a></li><li><a href="StorageAdapter.html#event:add">add</a></li><li><a href="StorageAdapter.html#event:delete">delete</a></li><li><a href="StorageAdapter.html#event:ready">ready</a></li><li><a href="StorageAdapter.html#event:update">update</a></li><li><a href="Transport.html#event:connectionLimitReached">connectionLimitReached</a></li><li><a href="UploadState.html#event:killed">killed</a></li></ul><h3>Tutorials</h3><ul><li><a href="tutorial-command-line-interface.html">Using the Command Line Tools</a></li><li><a href="tutorial-contract-topics.html">Publishing Storage Contracts</a></li><li><a href="tutorial-data-transfer.html">Transferring File Shards</a></li><li><a href="tutorial-environment-variables.html">Environment Variables</a></li><li><a href="tutorial-file-encryption.html">File Encryption Standards</a></li><li><a href="tutorial-private-testnet.html">Running a Test Network</a></li><li><a href="tutorial-protocol-spec.html">Protocol Specification</a></li><li><a href="tutorial-renting-data.html">Renting Data to the Network</a></li><li><a href="tutorial-tunnel-connections.html">Tunnelling Connections</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.11</a> on Sat Nov 09 2024 22:26:40 GMT-0800 (Pacific Standard Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: lib/audit-tools/proof-stream.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: lib/audit-tools/proof-stream.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>'use strict';
+
+var assert = require('assert');
+var MerkleTree = require('mtree');
+var utils = require('../utils');
+var inherits = require('util').inherits;
+var stream = require('readable-stream');
+var crypto = require('crypto');
+
+/**
+ * Provides interface for proving possession of a file for an
+ * {@link AuditStream}
+ * @constructor
+ * @license LGPL-3.0
+ * @param {Array} merkleLeaves - Bottom leaves of the audit merkle tree
+ * @param {String} hexChallenge - The challenge data in hex to prepend to shard
+ */
+function ProofStream(leaves, challenge) {
+  if (!(this instanceof ProofStream)) {
+    return new ProofStream(leaves, challenge);
+  }
+
+  assert(Array.isArray(leaves), 'Merkle leaves must be an array');
+  assert.ok(challenge, 'Invalid challenge supplied');
+
+  this._tree = new MerkleTree(this._generateLeaves(leaves),
+                              utils.rmd160sha256b);
+  if (!Buffer.isBuffer(challenge)) {
+    this._challenge = Buffer.from(challenge, 'hex');
+  } else {
+    this._challenge = challenge;
+  }
+  this._hasher = crypto.createHash('sha256').update(this._challenge);
+  this._proof = null;
+
+  stream.Transform.call(this, { objectMode: true });
+}
+
+inherits(ProofStream, stream.Transform);
+
+/**
+ * Returns the generated proof structure
+ * @return {Array}
+ */
+ProofStream.prototype.getProofResult = function() {
+  assert(Array.isArray(this._proof), 'Proof generation is not complete');
+
+  return this._proof;
+};
+
+/**
+ * Handles writing the shard data to the proof stream
+ * @private
+ */
+ProofStream.prototype._transform = function(chunk, encoding, next) {
+  this._hasher.update(chunk, encoding);
+  next();
+};
+
+/**
+ * Generates the proof from the read data
+ * @private
+ */
+ProofStream.prototype._flush = function(done) {
+  try {
+    this._generateProof();
+  } catch (err) {
+    return done(err);
+  }
+
+  this.push(this.getProofResult());
+  done();
+};
+
+ProofStream.prototype._findMatchIndex = function(leaves, leaf) {
+  var challengenum = -1;
+  for (let i = 0; i &lt; leaves.length; i++) {
+    if (Buffer.compare(leaves[i], leaf) === 0) {
+      challengenum = i;
+      break;
+    }
+  }
+  return challengenum;
+}
+
+/**
+ * Calculate audit response
+ * @private
+ * @param {String} challenge - Challenge string sent by auditor
+ * @returns {Array} result - Challenge response
+ */
+ProofStream.prototype._generateProof = function() {
+
+  var response = utils.rmd160b(this._hasher.digest());
+  var leaves = this._tree.level(this._tree.levels() - 1);
+
+  const leaf = utils.rmd160sha256b(response);
+
+  var challengenum = this._findMatchIndex(leaves, leaf);
+
+  assert(challengenum !== -1, 'Failed to generate proof');
+
+  var branches = [response];
+
+  for (var i = (this._tree.levels() - 1); i > 0; i--) {
+    var level = this._tree.level(i);
+
+    if (challengenum % 2 === 0) {
+      branches = [branches, level[challengenum + 1]];
+    } else {
+      branches = [level[challengenum - 1], branches];
+    }
+
+    challengenum = Math.floor(challengenum / 2);
+  }
+
+  this._proof = branches;
+};
+
+/**
+ * Generates the bottom leaves of the tree to the next power of two
+ * @private
+ * @param {Array} leaves
+ */
+ProofStream.prototype._generateLeaves = function(leaves) {
+  var numEmpty = utils.getNextPowerOfTwo(leaves.length) - leaves.length;
+  var emptyLeaves = [];
+
+  for (var i = 0; i &lt; numEmpty; i++) {
+    emptyLeaves.push(utils.rmd160sha256b(''));
+  }
+
+  leaves = leaves.map((i) => Buffer.from(i, 'hex'))
+
+  return leaves.concat(emptyLeaves);
+};
+
+module.exports = ProofStream;
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-storj.html">storj</a></li><li><a href="module-storj_constants.html">storj/constants</a></li><li><a href="module-storj_deps.html">storj/deps</a></li><li><a href="module-storj_patches.html">storj/patches</a></li><li><a href="module-storj_sips.html">storj/sips</a></li><li><a href="module-storj_sips_0003.html">storj/sips/0003</a></li><li><a href="module-storj_utils.html">storj/utils</a></li><li><a href="module-storj_version.html">storj/version</a></li></ul><h3>Classes</h3><ul><li><a href="AuditStream.html">AuditStream</a></li><li><a href="Blacklist.html">Blacklist</a></li><li><a href="BridgeClient.html">BridgeClient</a></li><li><a href="Contact.html">Contact</a></li><li><a href="Contract.html">Contract</a></li><li><a href="DataCipherKeyIv.html">DataCipherKeyIv</a></li><li><a href="DecryptStream.html">DecryptStream</a></li><li><a href="DeterministicKeyIv.html">DeterministicKeyIv</a></li><li><a href="EmbeddedStorageAdapter.html">EmbeddedStorageAdapter</a></li><li><a href="EncryptStream.html">EncryptStream</a></li><li><a href="ExchangeReport.html">ExchangeReport</a></li><li><a href="FarmerInterface.html">FarmerInterface</a></li><li><a href="FileDemuxer.html">FileDemuxer</a></li><li><a href="FileMuxer.html">FileMuxer</a></li><li><a href="KeyPair.html">KeyPair</a></li><li><a href="KeyRing.html">KeyRing</a></li><li><a href="Monitor.html">Monitor</a></li><li><a href="Network.html">Network</a></li><li><a href="OfferManager.html">OfferManager</a></li><li><a href="OfferStream.html">OfferStream</a></li><li><a href="ProofStream.html">ProofStream</a></li><li><a href="Protocol.html">Protocol</a></li><li><a href="RAMStorageAdapter.html">RAMStorageAdapter</a></li><li><a href="RenterInterface.html">RenterInterface</a></li><li><a href="ShardServer.html">ShardServer</a></li><li><a href="StorageAdapter.html">StorageAdapter</a></li><li><a href="StorageItem.html">StorageItem</a></li><li><a href="StorageManager.html">StorageManager</a></li><li><a href="StorageMigration.html">StorageMigration</a></li><li><a href="Transport.html">Transport</a></li><li><a href="TriggerManager.html">TriggerManager</a></li><li><a href="UploadState.html">UploadState</a></li><li><a href="Verification.html">Verification</a></li></ul><h3>Events</h3><ul><li><a href="AuditStream.html#event:finish">finish</a></li><li><a href="DecryptStream.html#event:data">data</a></li><li><a href="DecryptStream.html#event:end">end</a></li><li><a href="EmbeddedStorageAdapter.html#event:add">add</a></li><li><a href="EmbeddedStorageAdapter.html#event:delete">delete</a></li><li><a href="EmbeddedStorageAdapter.html#event:ready">ready</a></li><li><a href="EmbeddedStorageAdapter.html#event:update">update</a></li><li><a href="EncryptStream.html#event:data">data</a></li><li><a href="EncryptStream.html#event:end">end</a></li><li><a href="FarmerInterface.html#event:connected">connected</a></li><li><a href="FarmerInterface.html#event:disconnected">disconnected</a></li><li><a href="FarmerInterface.html#event:error">error</a></li><li><a href="FarmerInterface.html#event:ready">ready</a></li><li><a href="FarmerInterface.html#event:unhandledOffer">unhandledOffer</a></li><li><a href="FarmerInterface.html#event:unhandledOfferResolved">unhandledOfferResolved</a></li><li><a href="FileDemuxer.html#event:finish">finish</a></li><li><a href="FileDemuxer.html#event:shard">shard</a></li><li><a href="FileMuxer.html#event:drain">drain</a></li><li><a href="Monitor.html#event:update">update</a></li><li><a href="Network.html#event:connected">connected</a></li><li><a href="Network.html#event:disconnected">disconnected</a></li><li><a href="Network.html#event:error">error</a></li><li><a href="Network.html#event:ready">ready</a></li><li><a href="Network.html#event:unhandledOffer">unhandledOffer</a></li><li><a href="Network.html#event:unhandledOfferResolved">unhandledOfferResolved</a></li><li><a href="OfferStream.html#event:data">data</a></li><li><a href="OfferStream.html#event:end">end</a></li><li><a href="OfferStream.html#event:error">error</a></li><li><a href="RAMStorageAdapter.html#event:add">add</a></li><li><a href="RAMStorageAdapter.html#event:delete">delete</a></li><li><a href="RAMStorageAdapter.html#event:ready">ready</a></li><li><a href="RAMStorageAdapter.html#event:update">update</a></li><li><a href="RenterInterface.html#event:connected">connected</a></li><li><a href="RenterInterface.html#event:disconnected">disconnected</a></li><li><a href="RenterInterface.html#event:error">error</a></li><li><a href="RenterInterface.html#event:ready">ready</a></li><li><a href="RenterInterface.html#event:unhandledOffer">unhandledOffer</a></li><li><a href="RenterInterface.html#event:unhandledOfferResolved">unhandledOfferResolved</a></li><li><a href="ShardServer.html#event:error">error</a></li><li><a href="ShardServer.html#event:shardDownloaded">shardDownloaded</a></li><li><a href="ShardServer.html#event:shardUploaded">shardUploaded</a></li><li><a href="StorageAdapter.html#event:add">add</a></li><li><a href="StorageAdapter.html#event:delete">delete</a></li><li><a href="StorageAdapter.html#event:ready">ready</a></li><li><a href="StorageAdapter.html#event:update">update</a></li><li><a href="Transport.html#event:connectionLimitReached">connectionLimitReached</a></li><li><a href="UploadState.html#event:killed">killed</a></li></ul><h3>Tutorials</h3><ul><li><a href="tutorial-command-line-interface.html">Using the Command Line Tools</a></li><li><a href="tutorial-contract-topics.html">Publishing Storage Contracts</a></li><li><a href="tutorial-data-transfer.html">Transferring File Shards</a></li><li><a href="tutorial-environment-variables.html">Environment Variables</a></li><li><a href="tutorial-file-encryption.html">File Encryption Standards</a></li><li><a href="tutorial-private-testnet.html">Running a Test Network</a></li><li><a href="tutorial-protocol-spec.html">Protocol Specification</a></li><li><a href="tutorial-renting-data.html">Renting Data to the Network</a></li><li><a href="tutorial-tunnel-connections.html">Tunnelling Connections</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.11</a> on Sat Nov 09 2024 22:26:40 GMT-0800 (Pacific Standard Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

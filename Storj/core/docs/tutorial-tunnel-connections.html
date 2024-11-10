@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Tutorial: Tunnelling Connections</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Tutorial: Tunnelling Connections</h1>
+
+    <section>
+
+<header>
+    
+
+    <h2>Tunnelling Connections</h2>
+</header>
+
+<article>
+    <p>One of the most daunting problems to tackle when designing a stable and
+reliable distributed network is the traversal of various constraints such as
+NAT and firewalls. In some cases, software can use various strategies to
+&quot;punch out&quot; of these constraints and become publicly addressable on the
+Internet. The StorjCORE library makes use of these strategies, but when they
+fail we must devise more complex tactics for ensuring that network participants
+are reachable by their peers.</p>
+<p>The Storj protocol defines a series of RPC messages that can be exchanged
+in order to establish a &quot;tunnel&quot;. See the <a href="tutorial-protocol-spec.html">Protocol Specification</a> for more
+detail on these RPC messages and their purposes. A tunnel is, in essence, a
+proxy that allows a client that is not exposed to the Internet to be
+addressable as if it were.</p>
+<p>This works by a private node opening a long-lived connection to a public node
+who establishes a dedicated means for accepting messages on behalf of the
+private node and &quot;pipes&quot; any data received via those means directly back to the
+private node over the previously established connection.</p>
+<p>Once a tunnel has been established, the private node can begin identifying
+herself to the network using her tunnel's address, instead of her own. Private
+nodes do not need to use the tunnel to contact other nodes on the network, but
+rather only <em>to be contacted</em>.</p>
+<h3>Announcing Willingness</h3>
+<p>When a node joins the network and is publicly addressable, it has the ability
+to announce to the network that it is willing and capable of tunneling
+connections on behalf on nodes who are private or unable to punch out to
+become addressable on the Internet. The process of doing this uses the same
+publish/subscribe system described in the <a href="tutorial-contract-topics.html">Publishing Storage Contracts</a>
+specification which enables nodes to maintain a view of subscriptions in their
+neighborhood of the network as described in the <a href="tutorial-protocol-spec.html">Protocol Specification</a>.</p>
+<p>The difference between a contract publication and a tunnel announcement is in
+the opcode used for the topic and in the contents of the publication. Tunnel
+announcement publications use the opcode prefix <code>0x0e</code> followed by a single
+criteria degree opcode to indicate their willingness to tunnel (<code>0x00</code> to
+indicate &quot;I am no longer tunneling&quot; and <code>0x01</code> to indicate &quot;I am ready to
+tunnel&quot;).</p>
+<p>Whenever the condition changes, such as a node's maximum number of tunnels is
+reached or when a tunnel becomes available, it should issue a <code>PUBLISH</code> RPC
+message to it's nearest neighbors.</p>
+<pre class="prettyprint source"><code>{
+  &quot;method&quot;: &quot;PUBLISH&quot;,
+  &quot;params&quot;: {
+    &quot;uuid&quot;: &quot;7f0c40a2-e465-4f3e-b617-3d53460e34f7&quot;,
+    &quot;topic&quot;: &quot;0e01&quot;,
+    &quot;contents&quot;: {
+      &quot;address&quot;: &quot;10.0.0.2&quot;,
+      &quot;port&quot;: 1337
+    },
+    &quot;publishers&quot;: [
+      &quot;48dc026fa01ae26822bfb23f98e725444d6775b0&quot;
+    ],
+    &quot;ttl&quot;: 1455228597837,
+    &quot;contact&quot;: {
+      &quot;address&quot;: &quot;10.0.0.2&quot;,
+      &quot;port&quot;: 1337,
+      &quot;nodeID&quot;: &quot;48dc026fa01ae26822bfb23f98e725444d6775b0&quot;,
+      &quot;protocol&quot;: &quot;0.6.0&quot;
+    },
+    &quot;nonce&quot;: 1455216323786,
+    &quot;signature&quot;: &quot;304502207e8a439f2cb33055e0b2e2d90e775f29d90b3ad85aec0c...&quot;
+  },
+  &quot;id&quot;: &quot;7b6a2ab35da6826995abf3310a4875097df88cdb&quot;
+}
+</code></pre>
+<p>Public nodes should subscribe to these topics so that they can maintain an
+up-to-date list of nodes who are capable and willing to tunnel connections, so
+they can respond accurately to <code>FIND_TUNNEL</code> messages from private nodes.</p>
+<h3>Establishing a Tunnel</h3>
+<p>After a private node has discovered some willing tunnels using the <code>FIND_TUNNEL</code>
+RPC message defined in the <a href="tutorial-protocol-spec.html">Protocol Specification</a>, it can now begin the
+handshake to establish the tunnel. This begins by sending the <code>OPEN_TUNNEL</code> RPC
+message to the desired tunneler node. The recipient of <code>OPEN_TUNNEL</code> will
+check:</p>
+<ul>
+<li>Do I have enough remaining tunnels? (based on arbitrary limit set by node)</li>
+<li>Am I already tunneling for this nodeID?</li>
+<li>Has a payment channel been opened? (<strong>future spec</strong>)</li>
+</ul>
+<p>If the tunneling node has enough tunnels, is not already tunneling the node,
+and (in a future spec) if a payment channel has been opened for bandwidth, then
+the tunneling node opens a new dedicated TCP socket on an available port
+that will be used by the requester to send/receive HTTP messages.</p>
+<pre class="prettyprint source"><code>{
+  &quot;result&quot;: {
+    &quot;proxyPort&quot;: 12000,
+    &quot;contact&quot;: {
+      &quot;address&quot;: &quot;10.0.0.3&quot;,
+      &quot;port&quot;: 1337,
+      &quot;nodeID&quot;: &quot;48dc026fa01ae26822bfb23f98e725444d6775b0&quot;,
+      &quot;protocol&quot;: &quot;0.6.0&quot;
+    },
+    &quot;nonce&quot;: 1455216323786,
+    &quot;signature&quot;: &quot;304502207e8a439f2cb33055e0b2e2d90e775f29d90b3ad85aec0c...&quot;
+  },
+  &quot;id&quot;: &quot;7b6a2ab35da6826995abf3310a4875097df88cdb&quot;
+}
+</code></pre>
+<p>Now the private node can open a TCP connect to the <code>proxyPort</code> provided and
+messages sent to the tunneler that specify your node ID in the
+<code>x-storj-node-id</code> header will be written to the connected socket. From there,
+you may pipe this socket directly to your locally running node.</p>
+</article>
+
+</section>
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-storj.html">storj</a></li><li><a href="module-storj_constants.html">storj/constants</a></li><li><a href="module-storj_deps.html">storj/deps</a></li><li><a href="module-storj_patches.html">storj/patches</a></li><li><a href="module-storj_sips.html">storj/sips</a></li><li><a href="module-storj_sips_0003.html">storj/sips/0003</a></li><li><a href="module-storj_utils.html">storj/utils</a></li><li><a href="module-storj_version.html">storj/version</a></li></ul><h3>Classes</h3><ul><li><a href="AuditStream.html">AuditStream</a></li><li><a href="Blacklist.html">Blacklist</a></li><li><a href="BridgeClient.html">BridgeClient</a></li><li><a href="Contact.html">Contact</a></li><li><a href="Contract.html">Contract</a></li><li><a href="DataCipherKeyIv.html">DataCipherKeyIv</a></li><li><a href="DecryptStream.html">DecryptStream</a></li><li><a href="DeterministicKeyIv.html">DeterministicKeyIv</a></li><li><a href="EmbeddedStorageAdapter.html">EmbeddedStorageAdapter</a></li><li><a href="EncryptStream.html">EncryptStream</a></li><li><a href="ExchangeReport.html">ExchangeReport</a></li><li><a href="FarmerInterface.html">FarmerInterface</a></li><li><a href="FileDemuxer.html">FileDemuxer</a></li><li><a href="FileMuxer.html">FileMuxer</a></li><li><a href="KeyPair.html">KeyPair</a></li><li><a href="KeyRing.html">KeyRing</a></li><li><a href="Monitor.html">Monitor</a></li><li><a href="Network.html">Network</a></li><li><a href="OfferManager.html">OfferManager</a></li><li><a href="OfferStream.html">OfferStream</a></li><li><a href="ProofStream.html">ProofStream</a></li><li><a href="Protocol.html">Protocol</a></li><li><a href="RAMStorageAdapter.html">RAMStorageAdapter</a></li><li><a href="RenterInterface.html">RenterInterface</a></li><li><a href="ShardServer.html">ShardServer</a></li><li><a href="StorageAdapter.html">StorageAdapter</a></li><li><a href="StorageItem.html">StorageItem</a></li><li><a href="StorageManager.html">StorageManager</a></li><li><a href="StorageMigration.html">StorageMigration</a></li><li><a href="Transport.html">Transport</a></li><li><a href="TriggerManager.html">TriggerManager</a></li><li><a href="UploadState.html">UploadState</a></li><li><a href="Verification.html">Verification</a></li></ul><h3>Events</h3><ul><li><a href="AuditStream.html#event:finish">finish</a></li><li><a href="DecryptStream.html#event:data">data</a></li><li><a href="DecryptStream.html#event:end">end</a></li><li><a href="EmbeddedStorageAdapter.html#event:add">add</a></li><li><a href="EmbeddedStorageAdapter.html#event:delete">delete</a></li><li><a href="EmbeddedStorageAdapter.html#event:ready">ready</a></li><li><a href="EmbeddedStorageAdapter.html#event:update">update</a></li><li><a href="EncryptStream.html#event:data">data</a></li><li><a href="EncryptStream.html#event:end">end</a></li><li><a href="FarmerInterface.html#event:connected">connected</a></li><li><a href="FarmerInterface.html#event:disconnected">disconnected</a></li><li><a href="FarmerInterface.html#event:error">error</a></li><li><a href="FarmerInterface.html#event:ready">ready</a></li><li><a href="FarmerInterface.html#event:unhandledOffer">unhandledOffer</a></li><li><a href="FarmerInterface.html#event:unhandledOfferResolved">unhandledOfferResolved</a></li><li><a href="FileDemuxer.html#event:finish">finish</a></li><li><a href="FileDemuxer.html#event:shard">shard</a></li><li><a href="FileMuxer.html#event:drain">drain</a></li><li><a href="Monitor.html#event:update">update</a></li><li><a href="Network.html#event:connected">connected</a></li><li><a href="Network.html#event:disconnected">disconnected</a></li><li><a href="Network.html#event:error">error</a></li><li><a href="Network.html#event:ready">ready</a></li><li><a href="Network.html#event:unhandledOffer">unhandledOffer</a></li><li><a href="Network.html#event:unhandledOfferResolved">unhandledOfferResolved</a></li><li><a href="OfferStream.html#event:data">data</a></li><li><a href="OfferStream.html#event:end">end</a></li><li><a href="OfferStream.html#event:error">error</a></li><li><a href="RAMStorageAdapter.html#event:add">add</a></li><li><a href="RAMStorageAdapter.html#event:delete">delete</a></li><li><a href="RAMStorageAdapter.html#event:ready">ready</a></li><li><a href="RAMStorageAdapter.html#event:update">update</a></li><li><a href="RenterInterface.html#event:connected">connected</a></li><li><a href="RenterInterface.html#event:disconnected">disconnected</a></li><li><a href="RenterInterface.html#event:error">error</a></li><li><a href="RenterInterface.html#event:ready">ready</a></li><li><a href="RenterInterface.html#event:unhandledOffer">unhandledOffer</a></li><li><a href="RenterInterface.html#event:unhandledOfferResolved">unhandledOfferResolved</a></li><li><a href="ShardServer.html#event:error">error</a></li><li><a href="ShardServer.html#event:shardDownloaded">shardDownloaded</a></li><li><a href="ShardServer.html#event:shardUploaded">shardUploaded</a></li><li><a href="StorageAdapter.html#event:add">add</a></li><li><a href="StorageAdapter.html#event:delete">delete</a></li><li><a href="StorageAdapter.html#event:ready">ready</a></li><li><a href="StorageAdapter.html#event:update">update</a></li><li><a href="Transport.html#event:connectionLimitReached">connectionLimitReached</a></li><li><a href="UploadState.html#event:killed">killed</a></li></ul><h3>Tutorials</h3><ul><li><a href="tutorial-command-line-interface.html">Using the Command Line Tools</a></li><li><a href="tutorial-contract-topics.html">Publishing Storage Contracts</a></li><li><a href="tutorial-data-transfer.html">Transferring File Shards</a></li><li><a href="tutorial-environment-variables.html">Environment Variables</a></li><li><a href="tutorial-file-encryption.html">File Encryption Standards</a></li><li><a href="tutorial-private-testnet.html">Running a Test Network</a></li><li><a href="tutorial-protocol-spec.html">Protocol Specification</a></li><li><a href="tutorial-renting-data.html">Renting Data to the Network</a></li><li><a href="tutorial-tunnel-connections.html">Tunnelling Connections</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.11</a> on Sat Nov 09 2024 22:26:40 GMT-0800 (Pacific Standard Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

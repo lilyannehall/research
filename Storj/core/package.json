@@ -1,0 +1,123 @@
+{
+  "name": "storj-lib",
+  "version": "6.5.0",
+  "description": "implementation of the storj protocol for node.js and the browser",
+  "main": "index.js",
+  "directories": {
+    "test": "test",
+    "lib": "lib",
+    "doc": "doc"
+  },
+  "scripts": {
+    "test": "npm run testsuite && npm run linter",
+    "testsuite": "STORJ_ALLOW_LOOPBACK=1 ./node_modules/.bin/mocha test/** --recursive",
+    "coverage": "STORJ_ALLOW_LOOPBACK=1 ./node_modules/.bin/istanbul cover ./node_modules/.bin/_mocha -- --recursive",
+    "linter": "./node_modules/.bin/eslint ./index.js ./lib ./test",
+    "build": "./node_modules/.bin/browserify index.js -s storj -o dist/storj.browser.js",
+    "make-docs": "mkdir -p ./docs && rm -r ./docs && ./node_modules/.bin/jsdoc index.js lib -r -R README.md -u ./doc -c .jsdoc.json --verbose -d ./docs && cp -r doc/assets docs/assets",
+    "publish-docs": "npm run make-docs && node script/publishdoc.js"
+  },
+  "keywords": [
+    "storj",
+    "p2p"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/storj/core.git"
+  },
+  "author": "Gordon Hall <gordon@gordonwritescode.com>",
+  "contributors": [
+    {
+      "name": "littleskunk",
+      "url": "https://github.com/littleskunk"
+    },
+    {
+      "name": "Ryan Foran",
+      "url": "https://github.com/mrfancymonocle"
+    },
+    {
+      "name": "Philip Hutchins",
+      "url": "https://github.com/phutchins"
+    },
+    {
+      "name": "Allen Haim",
+      "url": "https://github.com/misterfish"
+    },
+    {
+      "name": "Alex Leitner",
+      "url": "https://github.com/aleitner"
+    },
+    {
+      "name": "Chris Pollard",
+      "url": "https://github.com/cpollard1001"
+    },
+    {
+      "name": "dxhome",
+      "url": "https://github.com/dxhome"
+    },
+    {
+      "name": "Colm Seale",
+      "url": "https://github.com/cseale"
+    }
+  ],
+  "license": "(AGPL-3.0 AND LGPL-3.0)",
+  "engines": {
+    "node": "^6.9.1"
+  },
+  "dependencies": {
+    "async": "^2.1.4",
+    "bitcore-ecies": "=1.0.1",
+    "bitcore-lib": "=0.13.19",
+    "bitcore-message": "=1.0.4",
+    "bitcore-mnemonic": "=1.1.1",
+    "concat-stream": "^1.6.0",
+    "diglet": "^1.0.6",
+    "fs-blob-store": "^5.2.1",
+    "hdkey": "^0.7.1",
+    "ip": "littleskunk/node-ip#b1e7ec0cbff9f7841b1584e50339a774363437c0",
+    "jsen": "bugventure/jsen#9e57a9d653ff4ea47d364fc37da0f1659bfb8e89",
+    "json-stable-stringify": "^1.0.1",
+    "kad": "^1.6.4",
+    "kad-logger-json": "^0.1.2",
+    "kad-quasar": "^1.2.4",
+    "kfs": "^3.1.4",
+    "knuth-shuffle": "^1.0.1",
+    "leveldown": "^1.6.0",
+    "levelup": "^1.3.1",
+    "merge": "^1.2.0",
+    "mime": "^1.3.4",
+    "mkdirp": "^0.5.1",
+    "ms": "^0.7.1",
+    "mtree": "^1.0.0",
+    "nat-upnp": "^1.0.2",
+    "node-tar.gz": "^1.0.0",
+    "node-uuid": "^1.4.7",
+    "ntp-client": "bookchin/node-ntp-client#v0.5.5",
+    "once": "^1.4.0",
+    "portfinder": "^1.0.3",
+    "readable-stream": "^2.0.6",
+    "request": "^2.70.0",
+    "restify": "^4.3.0",
+    "rimraf": "^2.5.3",
+    "secp256k1": "^3.2.2",
+    "semver": "^5.1.0",
+    "through": "^2.3.8"
+  },
+  "devDependencies": {
+    "benchmark": "^2.1.1",
+    "browserify": "^11.1.0",
+    "chai": "^2.2.0",
+    "coveralls": "^2.11.2",
+    "eslint": "^3.14.0",
+    "gh-pages": "^0.9.0",
+    "ink-docstrap": "bookchin/docstrap",
+    "istanbul": "^0.4.5",
+    "jsdoc": "^3.6.11",
+    "memory-blob-store": "^5.0.0",
+    "mocha": "^2.2.4",
+    "node-mocks-http": "^1.5.4",
+    "noisegen": "^1.0.0",
+    "proxyquire": "^1.7.3",
+    "sinon": "^1.14.1"
+  }
+}

@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: lib/storage/adapter.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: lib/storage/adapter.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>'use strict';
+
+var stream = require('readable-stream');
+var assert = require('assert');
+var Item = require('./item');
+var EventEmitter = require('events').EventEmitter;
+var inherits = require('util').inherits;
+var StorageItem = require('./item');
+
+/**
+ * Abstract base class for storage adapter
+ * @constructor
+ * @license AGPL-3.0
+ */
+function StorageAdapter() {
+  if (!(this instanceof StorageAdapter)) {
+    return new StorageAdapter();
+  }
+
+  EventEmitter.call(this);
+}
+
+/**
+ * Triggered when the adapter is ready
+ * @event StorageAdapter#ready
+ */
+
+/**
+ * Triggered when a new item is added
+ * @event StorageAdapter#add
+ * @param {StorageItem} item
+ */
+
+/**
+ * Triggered when an item is deleted
+ * @event StorageAdapter#delete
+ * @param {StorageItem} item
+ */
+
+/**
+ * Triggered when an existing item is updated
+ * @event StorageAdapter#update
+ * @param {StorageItem} itemBeforeUpdate
+ * @param {StorageItem} itemAfterUpdate
+ */
+
+inherits(StorageAdapter, EventEmitter);
+
+/**
+ * Calls the implemented {@link StorageAdapter#_get} and validates the result
+ * @param {String} key - Shard hash to get metadata for
+ * @param {Function} callback - Called with error or {@link StorageItem}
+ */
+StorageAdapter.prototype.get = function(key, callback) {
+  assert(typeof key === 'string', 'Invalid key supplied');
+  assert(key.length === 40, 'Key must be 160 bit hex string');
+  assert(typeof callback === 'function', 'Callback function must be supplied');
+
+  return this._get(key, function(err, result) {
+    if (err) {
+      return callback(err);
+    }
+
+    callback(null, new StorageItem(result));
+  });
+};
+
+/**
+ * Calls the implemented {@link StorageAdapter#_peek} and validates the result
+ * @param {String} key - Shard hash to get metadata for
+ * @param {Function} callback - Called with error or {@link StorageItem}
+ */
+StorageAdapter.prototype.peek = function(key, callback) {
+  assert(typeof key === 'string', 'Invalid key supplied');
+  assert(key.length === 40, 'Key must be 160 bit hex string');
+  assert(typeof callback === 'function', 'Callback function must be supplied');
+
+  return this._peek(key, function(err, result) {
+    if (err) {
+      return callback(err);
+    }
+
+    callback(null, new StorageItem(result));
+  });
+};
+
+/**
+ * Calls the implemented {@link StorageAdapter#_put} and validates the input
+ * @param {StorageItem} item - Item to write to storage
+ * @param {Function} callback - Called on complete write
+ */
+StorageAdapter.prototype.put = function(item, callback) {
+  var self = this;
+
+  assert(item instanceof Item, 'Invalid storage item supplied');
+  assert(typeof callback === 'function', 'Callback function must be supplied');
+
+  item.updateTimestamp();
+
+  return this.peek(item.hash, function(doesNotExist, existingItem) {
+    self._put(item.hash, item.toObject(), function(err) {
+      if (err) {
+        return callback(err);
+      }
+
+      if (doesNotExist) {
+        self.emit('add', item);
+      } else {
+        self.emit('update', existingItem, item);
+      }
+
+      callback(null);
+    });
+  });
+};
+
+/**
+ * Calls the implemented {@link StorageAdapter#_del}
+ * @param {String} key - Shard hash to delete the data for
+ * @param {Function} callback - Called with error or {@link StorageItem}
+ */
+StorageAdapter.prototype.del = function(key, callback) {
+  var self = this;
+
+  assert(typeof key === 'string', 'Invalid key supplied');
+  assert(key.length === 40, 'Key must be 160 bit hex string');
+  assert(typeof callback === 'function', 'Callback function must be supplied');
+
+  this.peek(key, function(err, item) {
+    if (err) {
+      return callback(err);
+    }
+
+    return self._del(key, function(err) {
+      if (err) {
+        return callback(err);
+      }
+
+      self.emit('delete', item);
+      callback(null);
+    });
+  });
+};
+
+/**
+ * Calls the implemented {@link StorageAdapter#_size}
+ * @param {String} [key] - Optional file key
+ * @param {Function} callback - Called with error or number of bytes stored
+ */
+StorageAdapter.prototype.size = function(/* [,key] callback */) {
+  return this._size.apply(this, arguments);
+};
+
+/**
+ * Calls the implemented {@link StorageAdapter#_flush}
+ * @param {Function} callback - Called with error or null
+ */
+StorageAdapter.prototype.flush = function(callback) {
+  assert(typeof callback === 'function', 'Callback function must be supplied');
+
+  return this._flush(callback);
+};
+
+/**
+ * Calls the implemented {@link StorageAdapter#_keys} and returns a readable
+ * stream containing each stored item
+ * @return {ReadableStream}
+ */
+StorageAdapter.prototype.createReadStream = function() {
+  return this._keys().pipe(new stream.Transform({
+    objectMode: true,
+    transform: (key, enc, next) => {
+      this.peek(key.toString(), next);
+    },
+    flush: (done) => done()
+  }));
+};
+
+/**
+ * Performs lookup and provides an {@link StorageItem} to the callback
+ * @abstract
+ * @param {String} key - Shard hash
+ * @param {Function} callback - Called on complete
+ */
+StorageAdapter.prototype._flush = function(/* callback */) {
+  throw new Error('Method not implemented');
+};
+
+/**
+ * Performs lookup and provides an {@link StorageItem} to the callback
+ * @abstract
+ * @param {String} key - Shard hash
+ * @param {Function} callback - Called on complete
+ */
+StorageAdapter.prototype._get = function(/* key, callback */) {
+  throw new Error('Method not implemented');
+};
+
+/**
+ * Performs lookup and provides an {@link StorageItem} to the callback but does
+ * not initialize any shard read/write stream
+ * @abstract
+ * @param {String} key - Shard hash
+ * @param {Function} callback - Called on complete
+ */
+StorageAdapter.prototype._peek = function(/* key, callback */) {
+  throw new Error('Method not implemented');
+};
+
+/**
+ * Delete the shard data at the given key
+ * @abstract
+ * @param {String} key - Shard hash
+ * @param {Function} callback - Called on complete
+ */
+StorageAdapter.prototype._del = function(/* key, callback */) {
+  throw new Error('Method not implemented');
+};
+
+/**
+ * Stores the {@link StorageItem}
+ * @abstract
+ * @param {String} key - Shard hash
+ * @param {Item} item - Item to store
+ * @param {Function} callback - Called on complete
+ */
+StorageAdapter.prototype._put = function(/* item, callback */) {
+  throw new Error('Method not implemented');
+};
+
+/**
+ * Returns the hashes of all shards stored
+ * @abstract
+ * @returns {ReadableStream}
+ */
+StorageAdapter.prototype._keys = function() {
+  throw new Error('Method not implemented');
+};
+
+/**
+ * Returns the number of bytes stored
+ * @abstract
+ * @param {Function} callback - Called on complete
+ */
+StorageAdapter.prototype._size = function(/* callback */) {
+  throw new Error('Method not implemented');
+};
+
+/**
+ * Opens the storage adapter
+ * @abstract
+ * @param {Function} callback - Called on complete
+ */
+StorageAdapter.prototype._open = function(callback) {
+  callback(null);
+};
+
+/**
+ * Closes the storage adapter
+ * @abstract
+ * @param {Function} callback - Called on complete
+ */
+StorageAdapter.prototype._close = function(callback) {
+  callback(null);
+};
+
+module.exports = StorageAdapter;
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-storj.html">storj</a></li><li><a href="module-storj_constants.html">storj/constants</a></li><li><a href="module-storj_deps.html">storj/deps</a></li><li><a href="module-storj_patches.html">storj/patches</a></li><li><a href="module-storj_sips.html">storj/sips</a></li><li><a href="module-storj_sips_0003.html">storj/sips/0003</a></li><li><a href="module-storj_utils.html">storj/utils</a></li><li><a href="module-storj_version.html">storj/version</a></li></ul><h3>Classes</h3><ul><li><a href="AuditStream.html">AuditStream</a></li><li><a href="Blacklist.html">Blacklist</a></li><li><a href="BridgeClient.html">BridgeClient</a></li><li><a href="Contact.html">Contact</a></li><li><a href="Contract.html">Contract</a></li><li><a href="DataCipherKeyIv.html">DataCipherKeyIv</a></li><li><a href="DecryptStream.html">DecryptStream</a></li><li><a href="DeterministicKeyIv.html">DeterministicKeyIv</a></li><li><a href="EmbeddedStorageAdapter.html">EmbeddedStorageAdapter</a></li><li><a href="EncryptStream.html">EncryptStream</a></li><li><a href="ExchangeReport.html">ExchangeReport</a></li><li><a href="FarmerInterface.html">FarmerInterface</a></li><li><a href="FileDemuxer.html">FileDemuxer</a></li><li><a href="FileMuxer.html">FileMuxer</a></li><li><a href="KeyPair.html">KeyPair</a></li><li><a href="KeyRing.html">KeyRing</a></li><li><a href="Monitor.html">Monitor</a></li><li><a href="Network.html">Network</a></li><li><a href="OfferManager.html">OfferManager</a></li><li><a href="OfferStream.html">OfferStream</a></li><li><a href="ProofStream.html">ProofStream</a></li><li><a href="Protocol.html">Protocol</a></li><li><a href="RAMStorageAdapter.html">RAMStorageAdapter</a></li><li><a href="RenterInterface.html">RenterInterface</a></li><li><a href="ShardServer.html">ShardServer</a></li><li><a href="StorageAdapter.html">StorageAdapter</a></li><li><a href="StorageItem.html">StorageItem</a></li><li><a href="StorageManager.html">StorageManager</a></li><li><a href="StorageMigration.html">StorageMigration</a></li><li><a href="Transport.html">Transport</a></li><li><a href="TriggerManager.html">TriggerManager</a></li><li><a href="UploadState.html">UploadState</a></li><li><a href="Verification.html">Verification</a></li></ul><h3>Events</h3><ul><li><a href="AuditStream.html#event:finish">finish</a></li><li><a href="DecryptStream.html#event:data">data</a></li><li><a href="DecryptStream.html#event:end">end</a></li><li><a href="EmbeddedStorageAdapter.html#event:add">add</a></li><li><a href="EmbeddedStorageAdapter.html#event:delete">delete</a></li><li><a href="EmbeddedStorageAdapter.html#event:ready">ready</a></li><li><a href="EmbeddedStorageAdapter.html#event:update">update</a></li><li><a href="EncryptStream.html#event:data">data</a></li><li><a href="EncryptStream.html#event:end">end</a></li><li><a href="FarmerInterface.html#event:connected">connected</a></li><li><a href="FarmerInterface.html#event:disconnected">disconnected</a></li><li><a href="FarmerInterface.html#event:error">error</a></li><li><a href="FarmerInterface.html#event:ready">ready</a></li><li><a href="FarmerInterface.html#event:unhandledOffer">unhandledOffer</a></li><li><a href="FarmerInterface.html#event:unhandledOfferResolved">unhandledOfferResolved</a></li><li><a href="FileDemuxer.html#event:finish">finish</a></li><li><a href="FileDemuxer.html#event:shard">shard</a></li><li><a href="FileMuxer.html#event:drain">drain</a></li><li><a href="Monitor.html#event:update">update</a></li><li><a href="Network.html#event:connected">connected</a></li><li><a href="Network.html#event:disconnected">disconnected</a></li><li><a href="Network.html#event:error">error</a></li><li><a href="Network.html#event:ready">ready</a></li><li><a href="Network.html#event:unhandledOffer">unhandledOffer</a></li><li><a href="Network.html#event:unhandledOfferResolved">unhandledOfferResolved</a></li><li><a href="OfferStream.html#event:data">data</a></li><li><a href="OfferStream.html#event:end">end</a></li><li><a href="OfferStream.html#event:error">error</a></li><li><a href="RAMStorageAdapter.html#event:add">add</a></li><li><a href="RAMStorageAdapter.html#event:delete">delete</a></li><li><a href="RAMStorageAdapter.html#event:ready">ready</a></li><li><a href="RAMStorageAdapter.html#event:update">update</a></li><li><a href="RenterInterface.html#event:connected">connected</a></li><li><a href="RenterInterface.html#event:disconnected">disconnected</a></li><li><a href="RenterInterface.html#event:error">error</a></li><li><a href="RenterInterface.html#event:ready">ready</a></li><li><a href="RenterInterface.html#event:unhandledOffer">unhandledOffer</a></li><li><a href="RenterInterface.html#event:unhandledOfferResolved">unhandledOfferResolved</a></li><li><a href="ShardServer.html#event:error">error</a></li><li><a href="ShardServer.html#event:shardDownloaded">shardDownloaded</a></li><li><a href="ShardServer.html#event:shardUploaded">shardUploaded</a></li><li><a href="StorageAdapter.html#event:add">add</a></li><li><a href="StorageAdapter.html#event:delete">delete</a></li><li><a href="StorageAdapter.html#event:ready">ready</a></li><li><a href="StorageAdapter.html#event:update">update</a></li><li><a href="Transport.html#event:connectionLimitReached">connectionLimitReached</a></li><li><a href="UploadState.html#event:killed">killed</a></li></ul><h3>Tutorials</h3><ul><li><a href="tutorial-command-line-interface.html">Using the Command Line Tools</a></li><li><a href="tutorial-contract-topics.html">Publishing Storage Contracts</a></li><li><a href="tutorial-data-transfer.html">Transferring File Shards</a></li><li><a href="tutorial-environment-variables.html">Environment Variables</a></li><li><a href="tutorial-file-encryption.html">File Encryption Standards</a></li><li><a href="tutorial-private-testnet.html">Running a Test Network</a></li><li><a href="tutorial-protocol-spec.html">Protocol Specification</a></li><li><a href="tutorial-renting-data.html">Renting Data to the Network</a></li><li><a href="tutorial-tunnel-connections.html">Tunnelling Connections</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.11</a> on Sat Nov 09 2024 22:26:40 GMT-0800 (Pacific Standard Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

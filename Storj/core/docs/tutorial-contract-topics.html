@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Tutorial: Publishing Storage Contracts</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Tutorial: Publishing Storage Contracts</h1>
+
+    <section>
+
+<header>
+    
+
+    <h2>Publishing Storage Contracts</h2>
+</header>
+
+<article>
+    <p>Nodes solicit storage contracts with the network by publishing information
+about their storage requirements as outlined in <a href="tutorial-protocol-spec.html">Protocol Specification</a>.
+Storj implements a distributed publish/subscribe system based on an algorithm
+called <a href="https://github.com/kadtools/kad-quasar">Quasar</a>.</p>
+<p>Quasar works by allowing nodes to advertise topics of interest to their
+neighbors and keeping a record of these topics in their neighborhood by storing
+them in an attenuated bloom filter. Each node has a view of the topics in which
+their neighbors are interested up to 3 hops away. By the nature of this
+design, the network forms gravity wells wherein messages of interest are
+efficiently relayed to nodes that are subscribed to the topic without flooding
+the network.</p>
+<p>This approach works well when there is a diverse number of topics. The Storj
+protocol leverages this by defining a matrix of <em>criteria</em> and <em>descriptors</em>
+in the form of opcodes representing the degree of which the criteria must be
+met.</p>
+<h3>Criteria</h3>
+<p>At the time of writing, there are 4 criteria column in the topic matrix:</p>
+<ul>
+<li>Size</li>
+<li>Duration</li>
+<li>Availability</li>
+<li>Speed</li>
+</ul>
+<h4>Size</h4>
+<p>Refers to the size of the data to be stored.</p>
+<h4>Duration</h4>
+<p>Refers to the length of time for which the data should be stored.</p>
+<h4>Availability</h4>
+<p>Refers to the relative uptime of required by the contract for retrieval of the
+stored data.</p>
+<h4>Speed</h4>
+<p>Refers to the throughput desired for retrieval of the stored data.</p>
+<h3>Descriptors</h3>
+<p>At the time of writing, there are 3 descriptor opcodes representing <em>low</em>,
+<em>medium</em>, and <em>high</em> degrees of the criteria.</p>
+<ul>
+<li>Low: <code>0x01</code></li>
+<li>Medium: <code>0x02</code></li>
+<li>High: <code>0x03</code></li>
+</ul>
+<p>The ranges represented by these descriptors are advisory and may change based
+on network performance and improvements to hardware over time.</p>
+<pre class="prettyprint source"><code>-------------------------------------------------------------------------------
+| Descriptor      | Size        | Duration   | Availability | Speed           |
+|-----------------|-------------|------------|--------------|-----------------|
+| Low    (`0x01`) | 0mb - 8mb   | 0d - 30d   | 0% - 50%     | 0mbps - 6mbps   |
+|-----------------|-------------|------------|--------------|-----------------|
+| Medium (`0x02`) | 8mb - 16mb  | 30d - 90d  | 50% - 80%    | 6mbps - 12mbps  |
+|-----------------|-------------|------------|--------------|-----------------|
+| High   (`0x03`) | 16mb - 32mb | 90d - 270d | 80% - 99%    | 12mbps - 32mbps |
+-------------------------------------------------------------------------------
+</code></pre>
+<h3>Topic Format</h3>
+<p>When publishing or subscribing to a given topic representing the degrees of
+these criteria, nodes must serialize the opcodes as the hex representation of
+the bytes in proper sequence. This sequence is defined as:</p>
+<pre class="prettyprint source"><code>prefix|size|duration|availability|speed
+</code></pre>
+<p>The first byte, &quot;prefix&quot;, is the <strong>static identifier</strong> for a contract
+publication. Contracts are not the only type of publication shared in the
+network, so the prefix acts as a namespace for a type of publication topic.</p>
+<p><strong>The prefix for a contract publication is:</strong> <code>0x0f</code>.</p>
+<p>To illustrate by example, we can determine the proper topic by analyzing the
+<em>use case</em> for a given file shard. For instance, if we want to store an asset
+that is displayed on a web page we can infer the following:</p>
+<ul>
+<li>The file is small</li>
+<li>The file may change often, so we should only store it for medium duration</li>
+<li>The file needs to always be available</li>
+<li>The file should be transferred quickly</li>
+</ul>
+<p>Using the matrix, we can determine the proper opcode sequence:</p>
+<pre class="prettyprint source"><code>[0x0f, 0x01, 0x02, 0x03, 0x03]
+</code></pre>
+<p>Serialized as hex, our topic string becomes:</p>
+<pre class="prettyprint source"><code>0f01020303
+</code></pre>
+<p>Another example, by contrast, is data <em>backup</em>. Data backup is quite different
+than the previous example:</p>
+<ul>
+<li>The file is large (perhaps part of a hard drive backup)</li>
+<li>The file will not change and should be stored long term</li>
+<li>The file will not be accessed often, if ever</li>
+<li>The file does not need to be transferred at high speed</li>
+</ul>
+<p>Using the matrix, we can determine the proper opcode sequence:</p>
+<pre class="prettyprint source"><code>[0x0f, 0x03, 0x03, 0x01, 0x01]
+</code></pre>
+<p>Serialized as hex, our topic string becomes:</p>
+<pre class="prettyprint source"><code>0f03030101
+</code></pre>
+<p>The resulting hex string from the serialized opcode byte sequence should be
+used as the <code>topic</code> parameter of a <code>PUBLISH</code> RPC as defined in the
+<a href="tutorial-protocol-spec.html">Protocol Specification</a>. Nodes that are subscribed to the topic will receive
+the proposed storage contract and may begin contract negotiation with you
+directly.</p>
+</article>
+
+</section>
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-storj.html">storj</a></li><li><a href="module-storj_constants.html">storj/constants</a></li><li><a href="module-storj_deps.html">storj/deps</a></li><li><a href="module-storj_patches.html">storj/patches</a></li><li><a href="module-storj_sips.html">storj/sips</a></li><li><a href="module-storj_sips_0003.html">storj/sips/0003</a></li><li><a href="module-storj_utils.html">storj/utils</a></li><li><a href="module-storj_version.html">storj/version</a></li></ul><h3>Classes</h3><ul><li><a href="AuditStream.html">AuditStream</a></li><li><a href="Blacklist.html">Blacklist</a></li><li><a href="BridgeClient.html">BridgeClient</a></li><li><a href="Contact.html">Contact</a></li><li><a href="Contract.html">Contract</a></li><li><a href="DataCipherKeyIv.html">DataCipherKeyIv</a></li><li><a href="DecryptStream.html">DecryptStream</a></li><li><a href="DeterministicKeyIv.html">DeterministicKeyIv</a></li><li><a href="EmbeddedStorageAdapter.html">EmbeddedStorageAdapter</a></li><li><a href="EncryptStream.html">EncryptStream</a></li><li><a href="ExchangeReport.html">ExchangeReport</a></li><li><a href="FarmerInterface.html">FarmerInterface</a></li><li><a href="FileDemuxer.html">FileDemuxer</a></li><li><a href="FileMuxer.html">FileMuxer</a></li><li><a href="KeyPair.html">KeyPair</a></li><li><a href="KeyRing.html">KeyRing</a></li><li><a href="Monitor.html">Monitor</a></li><li><a href="Network.html">Network</a></li><li><a href="OfferManager.html">OfferManager</a></li><li><a href="OfferStream.html">OfferStream</a></li><li><a href="ProofStream.html">ProofStream</a></li><li><a href="Protocol.html">Protocol</a></li><li><a href="RAMStorageAdapter.html">RAMStorageAdapter</a></li><li><a href="RenterInterface.html">RenterInterface</a></li><li><a href="ShardServer.html">ShardServer</a></li><li><a href="StorageAdapter.html">StorageAdapter</a></li><li><a href="StorageItem.html">StorageItem</a></li><li><a href="StorageManager.html">StorageManager</a></li><li><a href="StorageMigration.html">StorageMigration</a></li><li><a href="Transport.html">Transport</a></li><li><a href="TriggerManager.html">TriggerManager</a></li><li><a href="UploadState.html">UploadState</a></li><li><a href="Verification.html">Verification</a></li></ul><h3>Events</h3><ul><li><a href="AuditStream.html#event:finish">finish</a></li><li><a href="DecryptStream.html#event:data">data</a></li><li><a href="DecryptStream.html#event:end">end</a></li><li><a href="EmbeddedStorageAdapter.html#event:add">add</a></li><li><a href="EmbeddedStorageAdapter.html#event:delete">delete</a></li><li><a href="EmbeddedStorageAdapter.html#event:ready">ready</a></li><li><a href="EmbeddedStorageAdapter.html#event:update">update</a></li><li><a href="EncryptStream.html#event:data">data</a></li><li><a href="EncryptStream.html#event:end">end</a></li><li><a href="FarmerInterface.html#event:connected">connected</a></li><li><a href="FarmerInterface.html#event:disconnected">disconnected</a></li><li><a href="FarmerInterface.html#event:error">error</a></li><li><a href="FarmerInterface.html#event:ready">ready</a></li><li><a href="FarmerInterface.html#event:unhandledOffer">unhandledOffer</a></li><li><a href="FarmerInterface.html#event:unhandledOfferResolved">unhandledOfferResolved</a></li><li><a href="FileDemuxer.html#event:finish">finish</a></li><li><a href="FileDemuxer.html#event:shard">shard</a></li><li><a href="FileMuxer.html#event:drain">drain</a></li><li><a href="Monitor.html#event:update">update</a></li><li><a href="Network.html#event:connected">connected</a></li><li><a href="Network.html#event:disconnected">disconnected</a></li><li><a href="Network.html#event:error">error</a></li><li><a href="Network.html#event:ready">ready</a></li><li><a href="Network.html#event:unhandledOffer">unhandledOffer</a></li><li><a href="Network.html#event:unhandledOfferResolved">unhandledOfferResolved</a></li><li><a href="OfferStream.html#event:data">data</a></li><li><a href="OfferStream.html#event:end">end</a></li><li><a href="OfferStream.html#event:error">error</a></li><li><a href="RAMStorageAdapter.html#event:add">add</a></li><li><a href="RAMStorageAdapter.html#event:delete">delete</a></li><li><a href="RAMStorageAdapter.html#event:ready">ready</a></li><li><a href="RAMStorageAdapter.html#event:update">update</a></li><li><a href="RenterInterface.html#event:connected">connected</a></li><li><a href="RenterInterface.html#event:disconnected">disconnected</a></li><li><a href="RenterInterface.html#event:error">error</a></li><li><a href="RenterInterface.html#event:ready">ready</a></li><li><a href="RenterInterface.html#event:unhandledOffer">unhandledOffer</a></li><li><a href="RenterInterface.html#event:unhandledOfferResolved">unhandledOfferResolved</a></li><li><a href="ShardServer.html#event:error">error</a></li><li><a href="ShardServer.html#event:shardDownloaded">shardDownloaded</a></li><li><a href="ShardServer.html#event:shardUploaded">shardUploaded</a></li><li><a href="StorageAdapter.html#event:add">add</a></li><li><a href="StorageAdapter.html#event:delete">delete</a></li><li><a href="StorageAdapter.html#event:ready">ready</a></li><li><a href="StorageAdapter.html#event:update">update</a></li><li><a href="Transport.html#event:connectionLimitReached">connectionLimitReached</a></li><li><a href="UploadState.html#event:killed">killed</a></li></ul><h3>Tutorials</h3><ul><li><a href="tutorial-command-line-interface.html">Using the Command Line Tools</a></li><li><a href="tutorial-contract-topics.html">Publishing Storage Contracts</a></li><li><a href="tutorial-data-transfer.html">Transferring File Shards</a></li><li><a href="tutorial-environment-variables.html">Environment Variables</a></li><li><a href="tutorial-file-encryption.html">File Encryption Standards</a></li><li><a href="tutorial-private-testnet.html">Running a Test Network</a></li><li><a href="tutorial-protocol-spec.html">Protocol Specification</a></li><li><a href="tutorial-renting-data.html">Renting Data to the Network</a></li><li><a href="tutorial-tunnel-connections.html">Tunnelling Connections</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.11</a> on Sat Nov 09 2024 22:26:40 GMT-0800 (Pacific Standard Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>
