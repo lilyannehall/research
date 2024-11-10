@@ -1,9 +1,6 @@
 KFS (Kademlia File Store)
 =========================
 
-[![Build Status](https://img.shields.io/travis/Storj/kfs.svg?style=flat-square)](https://travis-ci.org/Storj/kfs)
-[![Coverage Status](https://img.shields.io/coveralls/Storj/kfs.svg?style=flat-square)](https://coveralls.io/r/Storj/kfs)
-[![NPM](https://img.shields.io/npm/v/kfs.svg?style=flat-square)](https://www.npmjs.com/package/kfs)
 [![License](https://img.shields.io/badge/license-GPL3.0-blue.svg?style=flat-square)](https://raw.githubusercontent.com/storj/kfs/master/LICENSE)
 
 The KFS system describes a method for managing the storage layer of nodes on 
@@ -12,7 +9,7 @@ where content-addressable data is placed in a shard using the same routing
 metric and algorithm used by the Kademlia distributed hash table.
 
 Be sure to read about the 
-[motivation and how it works](https://storj.github.io/kfs/tutorial-about.html)!
+[motivation and how it works](docs/tutorial-about.html)!
 
 Quick Start
 -----------
@@ -24,7 +21,7 @@ npm install kfs --save
 ```
 
 This will install `kfs` as a dependency of your own project. See the 
-[documentation](https://storj.github.io/kfs/) for in-depth usage details. 
+[documentation](docs) for in-depth usage details. 
 You can also install globally to use the `kfs` command line utility.
 
 ```
