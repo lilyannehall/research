@@ -4,6 +4,10 @@ html, body {
   padding: 0;
 }
 
+pre {
+  overflow: auto;
+}
+
 blockquote {
   border: 1px solid black;
   padding: 0 32px;
