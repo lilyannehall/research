@@ -1,12 +1,15 @@
 # lily anne hall *research publications*
 
-## white papers
+## white papers, technical specifications
 
-* [Storj: a peer-to-peer cloud storage network](./Storj/Storj.Whitepaper.V2.pdf) (Contributor -- Storj, 2016)
-
-## experiments
+### Storj
 
 * [KFS: a LevelDB sharding algorithm based on the XOR metric](./Storj/kfs) (Author -- Storj, 2016)
+* [Storj: a peer-to-peer cloud storage network](./Storj/Storj.Whitepaper.V2.pdf) (Contributor -- Storj, 2016)
+* [Protocol Specification V2](./Storj/protocol-v2) (Author -- Storj, 2016)
+* [SIP 0003: Remote Notifications and Triggers](./Storj/sip-0003) (Author -- Storj, 2016)
+* [SIP 0004: Contract Transfers and Renewals](./Storj/sip-0004) (Contributor -- Storj, 2016)
+* [SIP 0032: Hierarchically Deterministic Node IDs](./Storj/sip-0032) (Contributor -- Storj, 2016)
 
 ## security audits
 

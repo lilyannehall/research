@@ -1,3 +1,9 @@
+# Storj Core *protocol specification version 2*
+
+> Authored by Lily Anne Hall with contributions from Braydon Fuller
+
+## remote procedure calls
+
 Nodes communicate with each other using
 [JSON-RPC 2.0](http://www.jsonrpc.org/specification) over HTTPS. This requires
 farmers (nodes who are contracted by renter to store data) to be publicly
@@ -1086,6 +1092,638 @@ the test fails, then this effectively a failed audit and the contract is null.
 
 ### Implemented SIPs
 
-* [SIP0003 Remote Notifications and Triggers](https://github.com/Storj/sips/blob/master/sip-0003.md)
-* [SIP0004 Contract Transfers and Renewals](https://github.com/Storj/sips/blob/master/sip-0004.md)
-* [SIP0032 Hierarchically Deterministic Node IDs](https://github.com/Storj/sips/blob/master/sip-0032.md)
+* [SIP0003 Remote Notifications and Triggers](../sip-0003)
+* [SIP0004 Contract Transfers and Renewals](../sip-0004)
+* [SIP0032 Hierarchically Deterministic Node IDs](../sip-0032)
+
+## contract topics
+
+Nodes solicit storage contracts with the network by publishing information
+about their storage requirements as outlined in {@tutorial protocol-spec}.
+Storj implements a distributed publish/subscribe system based on an algorithm
+called [Quasar](https://github.com/kadtools/kad-quasar).
+
+Quasar works by allowing nodes to advertise topics of interest to their
+neighbors and keeping a record of these topics in their neighborhood by storing
+them in an attenuated bloom filter. Each node has a view of the topics in which
+their neighbors are interested up to 3 hops away. By the nature of this
+design, the network forms gravity wells wherein messages of interest are
+efficiently relayed to nodes that are subscribed to the topic without flooding
+the network.
+
+This approach works well when there is a diverse number of topics. The Storj
+protocol leverages this by defining a matrix of *criteria* and *descriptors*
+in the form of opcodes representing the degree of which the criteria must be
+met.
+
+### Criteria
+
+At the time of writing, there are 4 criteria column in the topic matrix:
+
+* Size
+* Duration
+* Availability
+* Speed
+
+#### Size
+
+Refers to the size of the data to be stored.
+
+#### Duration
+
+Refers to the length of time for which the data should be stored.
+
+#### Availability
+
+Refers to the relative uptime of required by the contract for retrieval of the
+stored data.
+
+#### Speed
+
+Refers to the throughput desired for retrieval of the stored data.
+
+### Descriptors
+
+At the time of writing, there are 3 descriptor opcodes representing *low*,
+*medium*, and *high* degrees of the criteria.
+
+* Low: `0x01`
+* Medium: `0x02`
+* High: `0x03`
+
+The ranges represented by these descriptors are advisory and may change based
+on network performance and improvements to hardware over time.
+
+```
+-------------------------------------------------------------------------------
+| Descriptor      | Size        | Duration   | Availability | Speed           |
+|-----------------|-------------|------------|--------------|-----------------|
+| Low    (`0x01`) | 0mb - 8mb   | 0d - 30d   | 0% - 50%     | 0mbps - 6mbps   |
+|-----------------|-------------|------------|--------------|-----------------|
+| Medium (`0x02`) | 8mb - 16mb  | 30d - 90d  | 50% - 80%    | 6mbps - 12mbps  |
+|-----------------|-------------|------------|--------------|-----------------|
+| High   (`0x03`) | 16mb - 32mb | 90d - 270d | 80% - 99%    | 12mbps - 32mbps |
+-------------------------------------------------------------------------------
+```
+
+### Topic Format
+
+When publishing or subscribing to a given topic representing the degrees of
+these criteria, nodes must serialize the opcodes as the hex representation of
+the bytes in proper sequence. This sequence is defined as:
+
+```
+prefix|size|duration|availability|speed
+```
+
+The first byte, "prefix", is the **static identifier** for a contract
+publication. Contracts are not the only type of publication shared in the
+network, so the prefix acts as a namespace for a type of publication topic.
+
+**The prefix for a contract publication is:** `0x0f`.
+
+To illustrate by example, we can determine the proper topic by analyzing the
+*use case* for a given file shard. For instance, if we want to store an asset
+that is displayed on a web page we can infer the following:
+
+* The file is small
+* The file may change often, so we should only store it for medium duration
+* The file needs to always be available
+* The file should be transferred quickly
+
+Using the matrix, we can determine the proper opcode sequence:
+
+```
+[0x0f, 0x01, 0x02, 0x03, 0x03]
+```
+
+Serialized as hex, our topic string becomes:
+
+```
+0f01020303
+```
+
+Another example, by contrast, is data *backup*. Data backup is quite different
+than the previous example:
+
+* The file is large (perhaps part of a hard drive backup)
+* The file will not change and should be stored long term
+* The file will not be accessed often, if ever
+* The file does not need to be transferred at high speed
+
+Using the matrix, we can determine the proper opcode sequence:
+
+```
+[0x0f, 0x03, 0x03, 0x01, 0x01]
+```
+
+Serialized as hex, our topic string becomes:
+
+```
+0f03030101
+```
+
+The resulting hex string from the serialized opcode byte sequence should be
+used as the `topic` parameter of a `PUBLISH` RPC as defined in the
+{@tutorial protocol-spec}. Nodes that are subscribed to the topic will receive
+the proposed storage contract and may begin contract negotiation with you
+directly.
+
+## data transfer
+
+Transfering file shards to farmers is a simple process. After a successful 
+`CONSIGN` or `RETRIEVE` RPC yields a token, the renter may construct an HTTP 
+request to the farmer, to push or pull the data.
+
+#### Uploading Shards
+
+To upload a shard to a given farmer, construct an HTTP request:
+
+* Method: `POST`
+* Path: `/shards/{hash}?token={token}`
+* Headers:
+  * `content-type: application/octet-stream`
+  * `x-storj-node-id: {farmer node id}`
+
+Then simply write the encrypted shard to the request. Farmers will respond with
+appropriate status codes and messages to indicate the result.
+
+#### Downloading Shards
+
+To download a shard from a given farmer, construct an HTTP request:
+
+* Method: `GET`
+* Path: `/shards/{hash}?token={token}`
+* Headers:
+  * `content-type: application/octet-stream`
+  * `x-storj-node-id: {farmer node id}`
+
+You will receive the shard as a response of type `application/octet-stream` if 
+you are authorized.
+
+## file encryption
+
+This document serves to provide a detailed account of how files are encrypted
+by default by Storj Core to promote interoperability between different
+implementations of clients.
+
+### Sharding and Encryption Scheme
+
+Before data is stored in the network, the Storj Core library automatically
+handles file encryption, sharding, and key management for you.
+
+In order of operations:
+
+1. Complete file is encrypted with a unique key and initialization vector
+2. File is demultiplexed (or "sharded") into individual chunks
+3. Each shard is offered to the network and transferred
+4. Key and IV are encrypted with a passphrase and stored locally
+
+### Key and Initialization Vector Generation
+
+Files are encrypted using [AES-256-CTR](https://en.wikipedia.org/wiki/Advanced_Encryption_Standard). Use
+of CTR allows for random read-access to known indices. File `keys` are
+generated via one of two methods:
+
+* Local PBKDF2 key derivation (default)
+* Passphrase-based deterministic key derivation (recommended)
+
+### PBKDF2 Key Derivation
+
+By default, the `key` for each file is the result of a standard key derivation
+function, [PBKDF2](https://en.wikipedia.org/wiki/PBKDF2). PBKDF2 generates a
+key from a password and a salt. These two values are randomly generated bytes:
+
+* Password: 512 random bytes
+* Salt: 32 random bytes
+
+The key length of the PBKDF2 is 512 bytes, should use 25000 iterations, and use
+SHA-512 as the digest. To create the cipher/decipher and initialization vector,
+derive the SHA-256 hash of the resulting PBKDF2 for the cipher/decipher `key`
+and use the first 16 bytes of the original salt as the `iv`. The
+{@link DataCipherKeyIv} class represents these values, and provides methods for
+their generation.
+
+The {@link KeyRing} class stores the original `password` and `salt` locally in
+an encrypted JSON document keyed by the ObjectId returned from
+[Storj Bridge](https://github.com/Storj/bridge) for the file object. The
+cleartext JSON document has two properties: `pass` and `salt`.
+
+```
+{
+  "pass": "c7c311ee213d10baefd620a004d76485190d82...",
+  "salt": "6d33490c999e9d613ccf4b146446763df15de2..."
+}
+```
+
+This JSON string is encrypted with AES-256-CBC using a user-defined passphrase,
+and encoded as [Base58](https://en.wikipedia.org/wiki/Base58). Each of those
+encrypted JSON documents is stored in a directory called `key.ring/`, where the
+file name is the ObjectId returned from [Storj Bridge](https://github.com/Storj/bridge) for the file object.
+
+### Portable Key Ring Format
+
+Because the keys in the key ring are generated and stored locally, files
+encrypted with these keys cannot be accessed by other machines without first
+duplicating the key files onto that machine. To mitigate this, Storj Core can
+create a simple portable key ring archive.
+
+A {@link KeyRing} created by Storj Core can be exported into a portable format,
+which is simply a gzipped tape archive (`.tar.gz` or `.tgz`). Importing this
+archive simply entails:
+
+1. Decompress and unpack the archive
+2. Decrypt each JSON document using the original passphrase
+3. Encrypt each document with the passphrase of the target keyring
+4. Move the files into the target keyring, optionally overwriting conflicts
+
+### Passphrase-based Key Derivation
+
+Rather than relying on locally-generated keys, it is recommended that the user
+generate a high-entropy passphrase, and generate keys from it via a
+deterministic key derivation process. Using this method, the user may grant
+access to all encrypted files by simply transferring the passphrase. Storj Core
+offers tools for this based on Bitcoin's BIP39 Mnemonic passphrases.
+
+{@link KeyRing} provides tools for generating a mnemonic passphrase and
+writing it to disk. If a mnemonic is found, Storj Core will prefer
+passphrase-based key derivation to PBKDF2 derivation. Storj clients should
+create a file key as follows:
+
+1. Prepend the passphrase to the Bucket ID
+2. Calculate the `sha512` hash of the resulting string
+3. Take the first 64 bits of the resulting hash to make the **Bucket Key**
+4. Prepend the Bucket Key to the File ID
+5. Calculate the `sha512` hash of the resulting string
+6. Take the first 64 bits of the resulting hash to make the **File Key**
+
+As any client with access to the passphrase can easily generate file keys on
+demand, this provides additional portability of files between machines and
+applications.
+
+It is strongly recommended that users write down the passphrase, and keep it in
+a secure place.
+
+### Public Bucket Key Storage
+
+Public Buckets are a feature of Bridge, not a feature of Storj. When a Public
+Bucket is created, the Bucket Key is stored with Bridge. It is then provided to
+clients requesting PUSH or PULL tokens from that bucket.
+
+## tunnel connections
+
+One of the most daunting problems to tackle when designing a stable and
+reliable distributed network is the traversal of various constraints such as
+NAT and firewalls. In some cases, software can use various strategies to
+"punch out" of these constraints and become publicly addressable on the
+Internet. The StorjCORE library makes use of these strategies, but when they
+fail we must devise more complex tactics for ensuring that network participants
+are reachable by their peers.
+
+The Storj protocol defines a series of RPC messages that can be exchanged
+in order to establish a "tunnel". See the {@tutorial protocol-spec} for more
+detail on these RPC messages and their purposes. A tunnel is, in essence, a
+proxy that allows a client that is not exposed to the Internet to be
+addressable as if it were.
+
+This works by a private node opening a long-lived connection to a public node
+who establishes a dedicated means for accepting messages on behalf of the
+private node and "pipes" any data received via those means directly back to the
+private node over the previously established connection.
+
+Once a tunnel has been established, the private node can begin identifying
+herself to the network using her tunnel's address, instead of her own. Private
+nodes do not need to use the tunnel to contact other nodes on the network, but
+rather only *to be contacted*.
+
+### Announcing Willingness
+
+When a node joins the network and is publicly addressable, it has the ability
+to announce to the network that it is willing and capable of tunneling
+connections on behalf on nodes who are private or unable to punch out to
+become addressable on the Internet. The process of doing this uses the same
+publish/subscribe system described in the {@tutorial contract-topics}
+specification which enables nodes to maintain a view of subscriptions in their
+neighborhood of the network as described in the {@tutorial protocol-spec}.
+
+The difference between a contract publication and a tunnel announcement is in
+the opcode used for the topic and in the contents of the publication. Tunnel
+announcement publications use the opcode prefix `0x0e` followed by a single
+criteria degree opcode to indicate their willingness to tunnel (`0x00` to
+indicate "I am no longer tunneling" and `0x01` to indicate "I am ready to
+tunnel").
+
+Whenever the condition changes, such as a node's maximum number of tunnels is
+reached or when a tunnel becomes available, it should issue a `PUBLISH` RPC
+message to it's nearest neighbors.
+
+```
+{
+  "method": "PUBLISH",
+  "params": {
+    "uuid": "7f0c40a2-e465-4f3e-b617-3d53460e34f7",
+    "topic": "0e01",
+    "contents": {
+      "address": "10.0.0.2",
+      "port": 1337
+    },
+    "publishers": [
+      "48dc026fa01ae26822bfb23f98e725444d6775b0"
+    ],
+    "ttl": 1455228597837,
+    "contact": {
+      "address": "10.0.0.2",
+      "port": 1337,
+      "nodeID": "48dc026fa01ae26822bfb23f98e725444d6775b0",
+      "protocol": "0.6.0"
+    },
+    "nonce": 1455216323786,
+    "signature": "304502207e8a439f2cb33055e0b2e2d90e775f29d90b3ad85aec0c..."
+  },
+  "id": "7b6a2ab35da6826995abf3310a4875097df88cdb"
+}
+```
+
+Public nodes should subscribe to these topics so that they can maintain an
+up-to-date list of nodes who are capable and willing to tunnel connections, so
+they can respond accurately to `FIND_TUNNEL` messages from private nodes.
+
+### Establishing a Tunnel
+
+After a private node has discovered some willing tunnels using the `FIND_TUNNEL`
+RPC message defined in the {@tutorial protocol-spec}, it can now begin the
+handshake to establish the tunnel. This begins by sending the `OPEN_TUNNEL` RPC
+message to the desired tunneler node. The recipient of `OPEN_TUNNEL` will
+check:
+
+* Do I have enough remaining tunnels? (based on arbitrary limit set by node)
+* Am I already tunneling for this nodeID?
+* Has a payment channel been opened? (**future spec**)
+
+If the tunneling node has enough tunnels, is not already tunneling the node,
+and (in a future spec) if a payment channel has been opened for bandwidth, then
+the tunneling node opens a new dedicated TCP socket on an available port
+that will be used by the requester to send/receive HTTP messages.
+
+```
+{
+  "result": {
+    "proxyPort": 12000,
+    "contact": {
+      "address": "10.0.0.3",
+      "port": 1337,
+      "nodeID": "48dc026fa01ae26822bfb23f98e725444d6775b0",
+      "protocol": "0.6.0"
+    },
+    "nonce": 1455216323786,
+    "signature": "304502207e8a439f2cb33055e0b2e2d90e775f29d90b3ad85aec0c..."
+  },
+  "id": "7b6a2ab35da6826995abf3310a4875097df88cdb"
+}
+```
+
+Now the private node can open a TCP connect to the `proxyPort` provided and
+messages sent to the tunneler that specify your node ID in the 
+`x-storj-node-id` header will be written to the connected socket. From there, 
+you may pipe this socket directly to your locally running node.
+
+![tunnel diagram](assets/images/tunneling.png)
+
+## private testnet
+
+Setting up a private or partitioned version of the Storj network is very simple.
+The Storj protocol requires the inclusion of a `protocol` property nested
+inside the `contact` data included in every RPC message. See
+{@tutorial protocol-spec} for more information on the RPC message format.
+
+### Protocol Identifier Format
+
+Nodes on the Storj network identify the version of the protocol they are
+running with the use of a [semantic version](http://semver.org/) tag. When a
+node is trying to determine whether or not another node is compatible with her
+version of the protocol, she checks the following:
+
+* Is the `MAJOR` version the same?
+* Is the `MAJOR` version `0`?
+* Is the `MINOR` version the same?
+
+If both nodes are running the *same* `MAJOR` version and that version is
+**not** `0`, then the nodes are compatible. If the `MAJOR` version **is** `0`,
+then the nodes are compatible *only* if the `MINOR` version is the same.
+
+For example:
+
+* `0.5.1` **is** compatible with `0.5.3`
+* `0.5.1` **is not** compatible with `0.6.0`
+* `1.5.1` **is** compatible with `1.13.0`
+* `2.1.0` **is not** compatible with `1.13.0`
+
+### Special Identifiers
+
+The semantic versions specification also allows for special identifiers by
+postfixing the version with a hyphen followed by some identifier. This is where
+the network partitioning magic happens.
+
+Let's say, for example, I work for "Widgets Ltd" and I want to deploy a Storj
+network within the Widgets Ltd private network. Every workstation would run a
+modified version of [`storj/farmer`](https://github.com/storj/farmer) or maybe
+my own custom interface built atop `storj/core`.
+
+I would simply change my Storj-based software to use the version
+`1.5.0-widgetsltd`. The Storj protocol sees this identifies as a *strict* match
+and therefore any nodes running this version of the software will only
+communicate with nodes running the **exact** protocol identifier.
+
+### Changing the Version
+
+Changing the version in `storj/core` is easy as pie. In your code, simply
+import the module and change the identifier like so:
+
+```
+// Import core library
+var storj = require('storj');
+
+// Modify protocol version
+storj.version.protocol = '1.5.0-widgetsltd';
+
+// Get on with your stuff...
+```
+
+If you are running "vanilla" Storj software, you can change the protocol
+version by setting the `STORJ_NETWORK` environment variable. This will add a
+postfix to the protocol version, which will partition the network to nodes
+that are running that *exact* version:
+
+```
+STORJ_NETWORK=testnet storjshare --datadir /path/to/shards
+```
+
+This concept applies broadly to deploying a custom Storj network for any
+purpose. This could be used for a public testnet (`x.x.x-testnet`) or for the
+private network example above.
+
+## environment variables
+
+Below is a list of environment variables that can be used to alter the
+behavior of the core library and associated tooling.
+
+### `STORJ_NETWORK`
+
+This value will be postfixed to your announced protocol version in the network.
+A value of `testnet` would advertise to the network you are running
+`0.7.0-testnet`, which will isolate you to other nodes running the same exact
+version. See {@tutorial private-testnet} for more information.
+
+### `STORJ_ALLOW_LOOPBACK`
+
+By default, the {@link Network} class will drop and ignore message from nodes
+who identify themeselves as a loopback interface like `localhost`, `127.0.0.1`,
+etc. This is a security precaution to prevent others from causing you to send
+messages to yourself as well as prevent invalid contacts in your routing table.
+
+To disable this feature (primarily for local testing), set this variable to `1`.
+
+### `STORJ_BRIDGE`
+
+This variable will change the default URI for the {@link BridgeClient} class.
+The default value is `https://api.storj.io`. If you run your own bridge,
+testing one locally, or otherwise would like to default to a different host,
+set this variable.
+
+This works well with the CLI (see {@tutorial command-line-interface}) when
+testing against other bridges.
+
+### `STORJ_KEYPASS`
+
+This variable will set the `--keypass` used to unlock the keyring.
+
+Setting your password will make it so other users can't grep it with `ps -a`.
+
+### `STORJ_TEMP`
+
+This variable will set the folder to which the encrypted file will be placed
+when uploading a file. Shards will also be placed in this folder during upload.
+
+## command line interface
+
+This package comes equipped with a command line interface for performing a
+number of useful operations on the Storj network. The CLI program is generally
+focused on interacting with a remote [Bridge](https://github.com/Storj/bridge)
+service and makes use of the library's {@link BridgeClient} class to do so. In
+addition to interacting with a bridge node, the tool also exposes some general
+purpose utilities.
+
+To use the CLI, follow the instructions in the [README](https://github.com/Storj/core/blob/master/README.md) to install the module
+**globally** or if you are working from within the git repository, you can use:
+
+```
+npm link
+```
+
+### Communicating with a Bridge
+
+Once you have access to the `storj` command, register and authenticate with the
+bridge:
+
+```
+> $ storj register
+ [...]  > Enter your email address  >  user@storj.io
+ [...]  > Enter your password  >  *************
+
+ [info]   Registered! Check your email to activate your account.
+```
+
+Follow the activation link you receive via email and come back to the CLI to
+pair with your account:
+
+```
+> $ storj login
+ [...]  > Enter your email address  >  user@storj.io
+ [...]  > Enter your password  >  *************
+
+ [info]   This device has been successfully paired.
+```
+
+Now you can create buckets, transfer files, and manage your bridge account.
+
+### Audits, Proofs, and Verifications
+
+The CLI also includes some utility commands for generating file possession
+audits, proving possession, and verifying proofs. You can generate a challenge
+set and merkle tree for a file easily:
+
+```
+> $ storj prepare-audits 2 CONTRIBUTING.md
+ [info]   Generating challenges and merkle tree...
+ [info]
+ [info]   Merkle Root
+ [info]   -----------
+ [info]   9c8c37935f58d46e3301efe4f44724b8785a81a5
+ [info]
+ [info]   Challenges
+ [info]   ----------
+ [info]   c8573773616e072230d40131e7ce8537d384825e337e5903ff7367ddea798c52
+ [info]   7c4d4f57f40d5c95f962e7cd72347e4077e1885aaffd8c1ccbbd02c8d7c48dce
+ [info]
+ [info]   Merkle Leaves
+ [info]   -------------
+ [info]   aaf42766d87a37e6dffbae7172fd0073006bf5f3
+ [info]   ccee086dbc8a16b93b79912cb37f3b037bbf8269
+```
+
+A farmer can use parts of this data to prove possession of a file shard:
+
+```
+> $ storj prove-file aaf42766d87a37e6dffbae7172fd0073006bf5f3,ccee086dbc8a16b93b79912cb37f3b037bbf8269 c8573773616e072230d40131e7ce8537d384825e337e5903ff7367ddea798c52 CONTRIBUTING.md
+ [info]   Generating proof of possession...
+ [info]
+ [info]   Challenge Response
+ [info]   ------------------
+ [info]   [["153a0d4b1d228043992fec585cadb51974b053f7"],"ccee086dbc8a16b93b79912cb37f3b037bbf8269"]
+```
+
+The result of this operation can be used by the original renter to verify the
+the proof and confirm that the farmer still has possession of the file:
+
+```
+> $ storj verify-proof 9c8c37935f58d46e3301efe4f44724b8785a81a5 2 '[["153a0d4b1d228043992fec585cadb51974b053f7"],"ccee086dbc8a16b93b79912cb37f3b037bbf8269"]'
+ [info]
+ [info]   Expected: 9c8c37935f58d46e3301efe4f44724b8785a81a5
+ [info]   Actual:   9c8c37935f58d46e3301efe4f44724b8785a81a5
+ [info]
+ [info]   The proof response is valid
+```
+
+For more detailed usage information of the command line interface, run
+`storj --help`.
+
+### Temporary Files
+On Windows temporary files are stored:
+
+```
+C:\Users\<user>\AppData\Local\Temp
+```
+
+## license
+
+> Storj Core - Implementation of the Storj protocol for Node.js
+> Copyright (C) 2016  Storj Labs, Inc
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published
+by the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+*Certain parts of this program are licensed under the GNU Lesser General
+Public License as published by the Free Software Foundation. You can
+redistribute it and/or modify it under the terms either version 3 of the
+License, or (at your option) any later version.*
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see
+[http://www.gnu.org/licenses/](http://www.gnu.org/licenses/).
