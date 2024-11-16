@@ -1,5 +1,13 @@
 # lily anne hall *research publications*
 
+## white papers
+
+* [Storj: a peer-to-peer cloud storage network](./Storj/Storj.Whitepaper.V2.pdf) (Contributor -- Storj, 2016)
+
+## experiments
+
+* [KFS: a LevelDB sharding algorithm based on the XOR metric](./Storj/kfs) (Author -- Storj, 2016)
+
 ## security audits
 
 ### MetaMask
@@ -37,11 +45,4 @@
 
 * [TRON Protocol](./TRON/LeastAuthority-TRON-Protocol-Audit-Report.pdf) (Contributor -- Least Authority, 2020)
 
-## white papers
-
-* [Storj: a peer-to-peer cloud storage network](./Storj/Storj.Whitepaper.V2.pdf) (Contributor -- Storj, 2016)
-
-## experiments
-
-* [KFS: a LevelDB sharding algorithm based on the XOR metric](./Storj/kfs) (Author -- Storj, 2016)
 
