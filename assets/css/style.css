@@ -15,6 +15,12 @@ blockquote {
   max-width: 8.5in;
 }
 
+img {
+  width: 85%;
+  display: block;
+  margin: auto;
+}
+
 p {
   line-height: 1.5em;
   font-size: 1.1em;
