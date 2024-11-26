@@ -2,8 +2,7 @@
 
 ## white papers, technical specifications
 
-### Storj
-
+* [dusk: darket under s/kademlia](https://lilyanne.me/dusk) (Author, 2024) - new &hearts;
 * [KFS: a LevelDB sharding algorithm based on the XOR metric](./Storj/kfs) (Author -- Storj, 2016)
 * [Storj: a peer-to-peer cloud storage network](./Storj/Storj.Whitepaper.V2.pdf) (Contributor -- Storj, 2016)
 * [Protocol Specification V2](./Storj/protocol-v2) (Author -- Storj, 2016)
